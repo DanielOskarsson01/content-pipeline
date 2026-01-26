@@ -1,0 +1,38 @@
+# Manual Deploy Workflow
+# Trigger manually from GitHub Actions tab
+
+name: Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Deploy to ${{ inputs.environment }}
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            cd /opt/content-pipeline
+            echo "Deploying to ${{ inputs.environment }}..."
+            git fetch origin
+            git reset --hard origin/main
+            npm ci --production
+            pm2 restart ecosystem.config.js
+            pm2 status
+            echo "Deploy complete!"
