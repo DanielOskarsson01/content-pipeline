@@ -1,0 +1,2701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Content Pipeline</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50: '#f0f9ff', 100: '#e0f2fe', 200: '#bae6fd', 300: '#7dd3fc', 400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1', 800: '#075985', 900: '#0c4a6e' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    [x-cloak] { display: none !important; }
+
+    /* Slide-in panel animation */
+    .slide-panel {
+      transform: translateX(-100%);
+      transition: transform 0.3s ease-out;
+    }
+    .slide-panel.open {
+      transform: translateX(0);
+    }
+
+    /* Backdrop fade */
+    .panel-backdrop {
+      opacity: 0;
+      transition: opacity 0.3s ease-out;
+    }
+    .panel-backdrop.open {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900 min-h-screen">
+
+  <div x-data="app()" x-init="init()" x-cloak>
+
+    <!-- Slide-in Results Panel -->
+    <div x-show="resultsPanelOpen" class="fixed inset-0 z-50" @keydown.escape.window="resultsPanelOpen = false">
+      <!-- Backdrop -->
+      <div class="fixed inset-0 bg-black/30 panel-backdrop"
+           :class="resultsPanelOpen ? 'open' : ''"
+           @click="resultsPanelOpen = false"></div>
+
+      <!-- Panel -->
+      <div class="fixed inset-y-0 left-0 w-full max-w-md bg-white shadow-2xl slide-panel flex flex-col"
+           :class="resultsPanelOpen ? 'open' : ''">
+
+        <!-- Panel Header -->
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
+          <div class="flex items-center gap-2">
+            <span class="text-lg" x-text="resultsPanel?.icon || '📊'"></span>
+            <div>
+              <h3 class="text-sm font-semibold text-gray-900" x-text="resultsPanel?.title || 'Results'"></h3>
+              <p class="text-[10px] text-gray-500" x-text="resultsPanel?.subtitle || ''"></p>
+            </div>
+          </div>
+          <button @click="resultsPanelOpen = false" class="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <!-- Panel Content -->
+        <div class="flex-1 overflow-y-auto p-4">
+
+          <!-- Status Badge -->
+          <div class="flex items-center gap-2 mb-4">
+            <span class="text-xs px-2 py-1 rounded-full"
+                  :class="resultsPanel?.status === 'success' ? 'bg-green-100 text-green-700' :
+                          resultsPanel?.status === 'warning' ? 'bg-yellow-100 text-yellow-700' :
+                          resultsPanel?.status === 'error' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'"
+                  x-text="resultsPanel?.status || 'pending'"></span>
+            <span class="text-[10px] text-gray-400" x-text="resultsPanel?.timestamp || ''"></span>
+          </div>
+
+          <!-- Stats Grid -->
+          <div x-show="resultsPanel?.stats" class="grid grid-cols-2 gap-3 mb-4">
+            <template x-for="(stat, key) in resultsPanel?.stats || {}" :key="key">
+              <div class="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                <p class="text-xs text-gray-500 capitalize" x-text="key.replace(/_/g, ' ')"></p>
+                <p class="text-lg font-semibold text-gray-900" x-text="stat"></p>
+              </div>
+            </template>
+          </div>
+
+          <!-- Results List -->
+          <div x-show="resultsPanel?.items?.length > 0">
+            <p class="text-xs text-gray-500 mb-2 font-medium uppercase">Details</p>
+            <div class="space-y-2">
+              <template x-for="(item, idx) in resultsPanel?.items || []" :key="idx">
+                <div class="bg-white rounded border border-gray-200 p-3">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0 flex-1">
+                      <p class="text-xs font-medium text-gray-800 truncate" x-text="item.title || item.url || item.name"></p>
+                      <p x-show="item.description" class="text-[10px] text-gray-400 mt-0.5" x-text="item.description"></p>
+                      <p x-show="item.url" class="text-[10px] text-blue-500 truncate mt-0.5" x-text="item.url"></p>
+                    </div>
+                    <span x-show="item.status"
+                          class="text-[8px] px-1.5 py-0.5 rounded flex-shrink-0"
+                          :class="item.status === 'pass' || item.status === 'success' ? 'bg-green-100 text-green-700' :
+                                  item.status === 'fail' || item.status === 'error' ? 'bg-red-100 text-red-700' :
+                                  'bg-gray-100 text-gray-600'"
+                          x-text="item.status"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Log/Output -->
+          <div x-show="resultsPanel?.log">
+            <p class="text-xs text-gray-500 mb-2 font-medium uppercase mt-4">Output Log</p>
+            <pre class="bg-gray-900 text-green-400 rounded p-3 text-[10px] overflow-x-auto max-h-48" x-text="resultsPanel?.log"></pre>
+          </div>
+
+          <!-- Empty State -->
+          <div x-show="!resultsPanel?.stats && !resultsPanel?.items?.length && !resultsPanel?.log"
+               class="text-center py-8 text-gray-400">
+            <p class="text-sm">No results yet</p>
+            <p class="text-xs mt-1">Run this submodule to see results</p>
+          </div>
+
+        </div>
+
+        <!-- Panel Footer -->
+        <div class="border-t border-gray-200 px-4 py-3 bg-gray-50 flex items-center justify-between">
+          <button class="text-xs text-gray-500 hover:text-gray-700">View full logs</button>
+          <button @click="resultsPanelOpen = false" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded text-xs font-medium">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-white border-b border-gray-200 px-6 py-3 shadow-sm">
+      <div class="max-w-7xl mx-auto flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <h1 class="text-lg font-bold text-gray-900">Content Pipeline</h1>
+          <span class="text-xs bg-brand-600 text-white px-2 py-0.5 rounded-full">v2.0</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <label class="flex items-center gap-2 text-xs text-gray-500 cursor-pointer select-none">
+            <span :class="useMockData ? 'text-yellow-600' : 'text-gray-400'">Demo</span>
+            <div class="relative">
+              <input type="checkbox" x-model="useMockData" @change="init()" class="sr-only">
+              <div :class="useMockData ? 'bg-yellow-500' : 'bg-brand-600'" class="w-8 h-4 rounded-full transition-colors"></div>
+              <div :class="useMockData ? 'translate-x-0' : 'translate-x-4'" class="absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform shadow"></div>
+            </div>
+            <span :class="!useMockData ? 'text-brand-600' : 'text-gray-400'">Live</span>
+          </label>
+          <span x-show="useMockData" class="flex items-center gap-1 text-yellow-600 text-xs">
+            <span class="w-1.5 h-1.5 bg-yellow-500 rounded-full"></span> Demo
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation -->
+    <nav class="bg-white border-b border-gray-200 px-6">
+      <div class="max-w-7xl mx-auto flex gap-1">
+        <template x-for="tab in tabs" :key="tab.id">
+          <button @click="activeTab = tab.id; selectedProject = null"
+            :class="activeTab === tab.id ? 'border-brand-500 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'"
+            class="px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap"
+            x-text="tab.label">
+          </button>
+        </template>
+      </div>
+    </nav>
+
+    <!-- Main -->
+    <main class="max-w-7xl mx-auto px-6 py-6">
+
+      <!-- ==================== PROJECTS TAB ==================== -->
+      <div x-show="activeTab === 'projects'">
+
+        <!-- PROJECT DETAIL: Accordion Pipeline View -->
+        <div x-show="selectedProject || showPipelineAccordion">
+          <div class="flex items-center gap-3 mb-2">
+            <button @click="selectedProject = null; showPipelineAccordion = false" class="text-gray-500 hover:text-gray-900 text-sm">&larr; Back</button>
+            <h2 class="text-lg font-semibold text-gray-900" x-text="selectedProject?.name || 'New Project'"></h2>
+            <span x-show="selectedProject?.label" class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded border border-gray-200" x-text="selectedProject?.label"></span>
+          </div>
+          <p x-show="selectedProject?.description" class="text-sm text-gray-500 mb-6" x-text="selectedProject?.description"></p>
+
+          <!-- 11-Step Accordion -->
+          <div class="space-y-2">
+            <template x-for="(step, i) in pipelineSteps" :key="i">
+              <div class="rounded-lg border overflow-hidden transition-all"
+                   :class="{
+                     'bg-white border-brand-500 shadow-md ring-1 ring-brand-200': stepStates[i]?.status === 'active',
+                     'bg-white border-gray-200': stepStates[i]?.status === 'completed',
+                     'bg-gray-50 border-gray-200 opacity-40': stepStates[i]?.status === 'skipped',
+                     'bg-gray-50 border-gray-200 opacity-60': stepStates[i]?.status === 'pending' && !isStepUnlocked(i),
+                     'bg-white border-gray-200': stepStates[i]?.status === 'pending' && isStepUnlocked(i)
+                   }">
+
+                <!-- Step Header (always visible) -->
+                <div class="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
+                     @click="toggleStep(i)">
+                  <!-- Step number -->
+                  <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                       :class="stepHeaderClass(stepStates[i]?.status)">
+                    <span x-show="stepStates[i]?.status !== 'completed'" x-text="i"></span>
+                    <span x-show="stepStates[i]?.status === 'completed'" class="text-sm">&#10003;</span>
+                  </div>
+                  <!-- Step name + description -->
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                      <span class="text-sm font-medium" :class="stepStates[i]?.status === 'active' ? 'text-gray-900' : stepStates[i]?.status === 'completed' ? 'text-gray-700' : 'text-gray-400'" x-text="step.name"></span>
+                      <span x-show="stepStates[i]?.status === 'skipped'" class="text-xs text-gray-400 italic">skipped</span>
+                    </div>
+                    <p class="text-xs truncate" :class="stepStates[i]?.status === 'active' ? 'text-gray-500' : 'text-gray-300'" x-text="step.description"></p>
+                  </div>
+                  <!-- Status + controls -->
+                  <div class="flex items-center gap-2 flex-shrink-0" :class="stepStates[i]?.status === 'active' || stepStates[i]?.status === 'completed' ? '' : 'opacity-50'">
+                    <span x-show="stepStates[i]?.resultSummary" class="text-xs text-gray-500" x-text="stepStates[i]?.resultSummary"></span>
+                    <button x-show="!useMockData && currentRunId && (stepStates[i]?.status === 'completed' || stepStates[i]?.status === 'approved' || stepStates[i]?.status === 'awaiting_approval')"
+                            @click.stop="openStageResultsPanel(i)"
+                            class="text-xs text-brand-600 hover:text-brand-800 px-2 py-0.5 rounded border border-brand-200 hover:border-brand-400">
+                      View Results
+                    </button>
+                    <span :class="stepStatusBadge(stepStates[i]?.status)" class="text-xs px-2 py-0.5 rounded-full" x-text="stepStates[i]?.status || 'pending'"></span>
+                    <span class="text-gray-400 text-sm" x-text="expandedStep === i ? '&#9650;' : '&#9660;'"></span>
+                  </div>
+                </div>
+
+                <!-- Step Body (expanded) -->
+                <div x-show="expandedStep === i" x-transition class="border-t border-gray-200">
+
+                  <!-- Step-specific workspace content -->
+                  <div class="p-4" :class="{'opacity-40 pointer-events-none': !isStepUnlocked(i) && stepStates[i]?.status !== 'completed'}">
+
+                    <!-- STEP 0: Project Setup -->
+                    <div x-show="i === 0">
+                      <div class="space-y-4">
+                        <!-- Project Selection: New or Existing -->
+                        <div class="flex items-center gap-4 mb-4">
+                          <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="projectMode" value="new" x-model="step0Mode" class="text-brand-600">
+                            <span class="text-sm text-gray-700">New Project</span>
+                          </label>
+                          <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="radio" name="projectMode" value="existing" x-model="step0Mode" class="text-brand-600">
+                            <span class="text-sm text-gray-700">Existing Project</span>
+                          </label>
+                        </div>
+
+                        <!-- New Project Name -->
+                        <div x-show="step0Mode === 'new'">
+                          <label class="block text-xs text-gray-600 mb-1">Project Name</label>
+                          <div class="flex gap-2">
+                            <input x-model="step0NewProjectName" type="text" placeholder="e.g. Affiliates Q1 2026, Nordic Operators..."
+                              class="flex-1 bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm focus:outline-none focus:border-brand-500"
+                              @keyup.enter="createAndSelectProject()">
+                            <button @click="createAndSelectProject()"
+                              class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded text-sm font-medium">
+                              Create
+                            </button>
+                          </div>
+                          <p class="text-[10px] text-gray-400 mt-1">Create a new project, then add input data in Step 1</p>
+                        </div>
+
+                        <!-- Existing Project Dropdown -->
+                        <div x-show="step0Mode === 'existing'">
+                          <label class="block text-xs text-gray-600 mb-1">Select Project</label>
+                          <select x-model="step0SelectedProjectId" @change="selectProjectById(step0SelectedProjectId)"
+                            class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm focus:outline-none focus:border-brand-500">
+                            <option value="">-- Choose a project --</option>
+                            <template x-for="p in projects.filter(p => p.status !== 'archived')" :key="p.id">
+                              <option :value="p.id" x-text="p.name + ' (' + (p.input_count || 0) + ' items)'"></option>
+                            </template>
+                          </select>
+                          <p class="text-[10px] text-gray-400 mt-1">Continue working on an existing project</p>
+                        </div>
+
+                        <!-- Current Project Info (shown when a project is selected) -->
+                        <div x-show="selectedProject" class="bg-green-50 border border-green-200 rounded-lg p-3 mt-4">
+                          <div class="flex items-center justify-between">
+                            <div>
+                              <p class="text-sm font-medium text-green-800">Active Project: <span x-text="selectedProject?.name"></span></p>
+                              <p class="text-xs text-green-600" x-text="(selectedProject?.input_count || 0) + ' items • ' + (selectedProject?.status || 'created')"></p>
+                            </div>
+                            <span class="text-green-500 text-lg">✓</span>
+                          </div>
+                        </div>
+
+                        <!-- No Project Selected Warning -->
+                        <div x-show="!selectedProject" class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mt-4">
+                          <p class="text-sm text-yellow-700">Create or select a project above to continue to the next steps.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 1: Input Specification -->
+                    <div x-show="i === 1" x-data="{
+                      openInput: null,
+                      inputs: {
+                        urls: { added: true, summary: '1 URL added' },
+                        docs: { added: false, summary: '' },
+                        images: { added: false, summary: '' },
+                        media: { added: false, summary: '' },
+                        text: { added: false, summary: '' },
+                        csv: { added: false, summary: '' }
+                      },
+                      toggleInput(key) { this.openInput = this.openInput === key ? null : key; },
+                      saveInput(key, summary) { this.inputs[key].added = true; this.inputs[key].summary = summary; this.openInput = null; },
+                      clearInput(key) { this.inputs[key].added = false; this.inputs[key].summary = ''; }
+                    }">
+                      <!-- Input Sources -->
+                      <div class="mb-4">
+                        <p class="text-xs text-gray-500 mb-2">Input Sources — What are you feeding the pipeline?</p>
+                        <div class="space-y-1">
+
+                          <!-- URLs row -->
+                          <div class="rounded border" :class="inputs.urls.added ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
+                            <div class="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none" @click="toggleInput('urls')">
+                              <div class="flex items-center gap-2">
+                                <span class="text-sm" x-text="openInput === 'urls' ? '&#9660;' : '&#9654;'"></span>
+                                <span class="text-xs font-medium text-gray-700">URLs</span>
+                                <span x-show="inputs.urls.added" class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded" x-text="inputs.urls.summary"></span>
+                              </div>
+                              <button x-show="inputs.urls.added" @click.stop="clearInput('urls')" class="text-[10px] text-gray-600 hover:text-red-400">clear</button>
+                            </div>
+                            <div x-show="openInput === 'urls'" x-transition class="px-3 pb-3 border-t border-gray-200">
+                              <label class="block text-xs text-gray-500 mt-2 mb-1">One URL per line</label>
+                              <textarea rows="3" :value="selectedProject?.source || ''" placeholder="https://example.com&#10;https://example.com/about&#10;https://example.com/products" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm font-mono"></textarea>
+                              <button @click="saveInput('urls', '3 URLs added')" class="mt-2 bg-brand-600 hover:bg-brand-700 text-white px-3 py-1 rounded text-xs">Save</button>
+                            </div>
+                          </div>
+
+                          <!-- Documents row -->
+                          <div class="rounded border" :class="inputs.docs.added ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
+                            <div class="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none" @click="toggleInput('docs')">
+                              <div class="flex items-center gap-2">
+                                <span class="text-sm" x-text="openInput === 'docs' ? '&#9660;' : '&#9654;'"></span>
+                                <span class="text-xs font-medium text-gray-700">Documents / Files</span>
+                                <span x-show="inputs.docs.added" class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded" x-text="inputs.docs.summary"></span>
+                              </div>
+                              <button x-show="inputs.docs.added" @click.stop="clearInput('docs')" class="text-[10px] text-gray-600 hover:text-red-400">clear</button>
+                            </div>
+                            <div x-show="openInput === 'docs'" x-transition class="px-3 pb-3 border-t border-gray-200">
+                              <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-500 transition-colors cursor-pointer mt-2">
+                                <p class="text-xs text-gray-400">Drop files here or click to browse</p>
+                                <p class="text-[10px] text-gray-600 mt-1">PDF, DOCX, TXT, XLSX</p>
+                              </div>
+                              <button @click="saveInput('docs', '2 files uploaded')" class="mt-2 bg-brand-600 hover:bg-brand-700 text-white px-3 py-1 rounded text-xs">Save</button>
+                            </div>
+                          </div>
+
+                          <!-- Images row -->
+                          <div class="rounded border" :class="inputs.images.added ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
+                            <div class="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none" @click="toggleInput('images')">
+                              <div class="flex items-center gap-2">
+                                <span class="text-sm" x-text="openInput === 'images' ? '&#9660;' : '&#9654;'"></span>
+                                <span class="text-xs font-medium text-gray-700">Images</span>
+                                <span x-show="inputs.images.added" class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded" x-text="inputs.images.summary"></span>
+                              </div>
+                              <button x-show="inputs.images.added" @click.stop="clearInput('images')" class="text-[10px] text-gray-600 hover:text-red-400">clear</button>
+                            </div>
+                            <div x-show="openInput === 'images'" x-transition class="px-3 pb-3 border-t border-gray-200">
+                              <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-500 transition-colors cursor-pointer mt-2">
+                                <p class="text-xs text-gray-400">Drop images here or click to browse</p>
+                                <p class="text-[10px] text-gray-600 mt-1">PNG, JPG, SVG, WebP</p>
+                              </div>
+                              <button @click="saveInput('images', '3 images uploaded')" class="mt-2 bg-brand-600 hover:bg-brand-700 text-white px-3 py-1 rounded text-xs">Save</button>
+                            </div>
+                          </div>
+
+                          <!-- Video / Audio row -->
+                          <div class="rounded border" :class="inputs.media.added ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
+                            <div class="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none" @click="toggleInput('media')">
+                              <div class="flex items-center gap-2">
+                                <span class="text-sm" x-text="openInput === 'media' ? '&#9660;' : '&#9654;'"></span>
+                                <span class="text-xs font-medium text-gray-700">Video / Audio</span>
+                                <span x-show="inputs.media.added" class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded" x-text="inputs.media.summary"></span>
+                              </div>
+                              <button x-show="inputs.media.added" @click.stop="clearInput('media')" class="text-[10px] text-gray-600 hover:text-red-400">clear</button>
+                            </div>
+                            <div x-show="openInput === 'media'" x-transition class="px-3 pb-3 border-t border-gray-200">
+                              <label class="block text-xs text-gray-500 mt-2 mb-1">Media URLs (YouTube, Spotify, RSS, direct links)</label>
+                              <textarea rows="2" placeholder="https://open.spotify.com/episode/...&#10;https://youtube.com/watch?v=..." class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm font-mono mb-2"></textarea>
+                              <div class="border-2 border-dashed border-gray-300 rounded-lg p-3 text-center hover:border-gray-500 transition-colors cursor-pointer">
+                                <p class="text-xs text-gray-400">Or drop media files (MP3, MP4, WAV, M4A)</p>
+                              </div>
+                              <button @click="saveInput('media', '1 podcast URL')" class="mt-2 bg-brand-600 hover:bg-brand-700 text-white px-3 py-1 rounded text-xs">Save</button>
+                            </div>
+                          </div>
+
+                          <!-- Manual Text row -->
+                          <div class="rounded border" :class="inputs.text.added ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
+                            <div class="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none" @click="toggleInput('text')">
+                              <div class="flex items-center gap-2">
+                                <span class="text-sm" x-text="openInput === 'text' ? '&#9660;' : '&#9654;'"></span>
+                                <span class="text-xs font-medium text-gray-700">Manual Text</span>
+                                <span x-show="inputs.text.added" class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded" x-text="inputs.text.summary"></span>
+                              </div>
+                              <button x-show="inputs.text.added" @click.stop="clearInput('text')" class="text-[10px] text-gray-600 hover:text-red-400">clear</button>
+                            </div>
+                            <div x-show="openInput === 'text'" x-transition class="px-3 pb-3 border-t border-gray-200">
+                              <label class="block text-xs text-gray-500 mt-2 mb-1">Paste or type content</label>
+                              <textarea rows="4" placeholder="Notes, briefs, outlines, or any raw text..." class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></textarea>
+                              <button @click="saveInput('text', '1 text block')" class="mt-2 bg-brand-600 hover:bg-brand-700 text-white px-3 py-1 rounded text-xs">Save</button>
+                            </div>
+                          </div>
+
+                          <!-- CSV / Batch row -->
+                          <div class="rounded border" :class="inputs.csv.added ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
+                            <div class="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none" @click="toggleInput('csv')">
+                              <div class="flex items-center gap-2">
+                                <span class="text-sm" x-text="openInput === 'csv' ? '&#9660;' : '&#9654;'"></span>
+                                <span class="text-xs font-medium text-gray-700">CSV / Batch</span>
+                                <span x-show="inputs.csv.added" class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded" x-text="inputs.csv.summary"></span>
+                              </div>
+                              <button x-show="inputs.csv.added" @click.stop="clearInput('csv')" class="text-[10px] text-gray-600 hover:text-red-400">clear</button>
+                            </div>
+                            <div x-show="openInput === 'csv'" x-transition class="px-3 pb-3 border-t border-gray-200">
+                              <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-500 transition-colors cursor-pointer mt-2">
+                                <p class="text-xs text-gray-400">Drop CSV/XLSX file here or click to browse</p>
+                              </div>
+                              <p class="text-[10px] text-gray-600 mt-1">Expected columns: name, url (optional), topic (optional), category (optional)</p>
+                              <button @click="saveInput('csv', '1 CSV file (47 rows)')" class="mt-2 bg-brand-600 hover:bg-brand-700 text-white px-3 py-1 rounded text-xs">Save</button>
+                            </div>
+                          </div>
+
+                        </div>
+                      </div>
+
+                      <!-- Output Intent -->
+                      <div class="mb-4">
+                        <p class="text-xs text-gray-500 mb-2">Output Intent — What do you want to produce?</p>
+                        <select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm">
+                          <option value="article">Article / News piece</option>
+                          <option value="profile">Company Profile</option>
+                          <option value="summary">Summary / Digest</option>
+                          <option value="faq">FAQ Content</option>
+                          <option value="podcast">Podcast Page / Show Notes</option>
+                          <option value="research">Research Report</option>
+                          <option value="competitor">Competitor Analysis</option>
+                          <option value="custom">Custom (define in Step 6)</option>
+                        </select>
+                      </div>
+
+                      <!-- Context Narrowing -->
+                      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <label class="block text-xs text-gray-500 mb-1">Geography</label>
+                          <select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm">
+                            <option>Global</option><option>Europe</option><option>Nordic</option><option>UK</option><option>US</option><option>Asia Pacific</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label class="block text-xs text-gray-500 mb-1">Language</label>
+                          <select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm">
+                            <option>English</option><option>Swedish</option><option>German</option><option>Spanish</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label class="block text-xs text-gray-500 mb-1">Freshness</label>
+                          <select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm">
+                            <option>Any</option><option>Last 30 days</option><option>Last 90 days</option><option>Last year</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 2: Discovery & Enrichment (Card-Based Sources) -->
+                    <div x-show="i === 2" x-data="{
+                      expandedSource: null,
+                      sources: {
+                        website: { enabled: true, label: 'Website', icon: '🌐', submodules: [
+                          { id: 'sitemap', name: 'Sitemap', enabled: true, cost: 'cheap', description: 'Parse sitemap.xml', lastResult: '12 URLs' },
+                          { id: 'navigation', name: 'Navigation', enabled: true, cost: 'cheap', description: 'Extract nav links', lastResult: '8 URLs' },
+                          { id: 'seed-expansion', name: 'Seed Expansion', enabled: true, cost: 'cheap', description: 'Expand from seed URLs', lastResult: '5 URLs' }
+                        ]},
+                        news: { enabled: true, label: 'News', icon: '📰', submodules: [
+                          { id: 'rss-feed', name: 'RSS Feeds', enabled: true, cost: 'cheap', description: 'Parse RSS/Atom feeds', lastResult: '15 URLs' },
+                          { id: 'search-news', name: 'News Search', enabled: false, cost: 'medium', description: 'Search news APIs', lastResult: null }
+                        ]},
+                        linkedin: { enabled: false, label: 'LinkedIn', icon: '💼', submodules: [
+                          { id: 'linkedin-company', name: 'Company Page', enabled: false, cost: 'medium', description: 'Scrape company profile', lastResult: null },
+                          { id: 'linkedin-posts', name: 'Posts', enabled: false, cost: 'medium', description: 'Fetch recent posts', lastResult: null }
+                        ]},
+                        youtube: { enabled: true, label: 'YouTube', icon: '🎬', submodules: [
+                          { id: 'youtube-channel', name: 'Channel Videos', enabled: true, cost: 'cheap', description: 'List channel videos', lastResult: '8 URLs' },
+                          { id: 'youtube-search', name: 'YouTube Search', enabled: false, cost: 'medium', description: 'Search for videos', lastResult: null }
+                        ]},
+                        twitter: { enabled: false, label: 'Twitter/X', icon: '🐦', submodules: [
+                          { id: 'twitter-profile', name: 'Profile', enabled: false, cost: 'medium', description: 'Fetch profile & tweets', lastResult: null }
+                        ]},
+                        crunchbase: { enabled: false, label: 'Crunchbase', icon: '📊', submodules: [
+                          { id: 'crunchbase-company', name: 'Company Data', enabled: false, cost: 'expensive', description: 'Funding & company info', lastResult: null }
+                        ]},
+                        search: { enabled: true, label: 'Search', icon: '🔍', submodules: [
+                          { id: 'search-google', name: 'Google Search', enabled: true, cost: 'expensive', description: 'General web search', lastResult: 'Fallback' }
+                        ], isFallback: true }
+                      },
+                      toggleSource(key) { this.sources[key].enabled = !this.sources[key].enabled; },
+                      toggleSubmodule(sourceKey, subId) {
+                        const sub = this.sources[sourceKey].submodules.find(s => s.id === subId);
+                        if (sub) sub.enabled = !sub.enabled;
+                      },
+                      getEnabledCount(source) { return source.submodules.filter(s => s.enabled).length; },
+                      getTotalUrls(source) {
+                        return source.submodules.filter(s => s.enabled && s.lastResult).map(s => parseInt(s.lastResult) || 0).reduce((a,b) => a+b, 0);
+                      },
+                      getCostClass(cost) {
+                        return { cheap: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700', expensive: 'bg-orange-100 text-orange-700' }[cost];
+                      }
+                    }">
+                      <div class="bg-blue-50 rounded p-3 border border-blue-200 mb-4">
+                        <p class="text-xs text-blue-700 font-medium mb-1">Multi-Source Discovery</p>
+                        <p class="text-xs text-gray-600">Enable source types and configure submodules for each. Cheap sources run first in parallel; expensive sources run as fallback if needed.</p>
+                      </div>
+
+                      <!-- Source Cards Grid -->
+                      <p class="text-xs text-gray-500 mb-3">Source Types (click to configure)</p>
+                      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                        <template x-for="(source, key) in sources" :key="key">
+                          <div class="rounded-lg border transition-all cursor-pointer"
+                               :class="source.enabled ? 'bg-white border-brand-300 shadow-sm' : 'bg-gray-50 border-gray-200 opacity-60'"
+                               @click="expandedSource = expandedSource === key ? null : key">
+                            <div class="p-3">
+                              <div class="flex items-center justify-between mb-2">
+                                <span class="text-lg" x-text="source.icon"></span>
+                                <button @click.stop="toggleSource(key)"
+                                        class="w-8 h-4 rounded-full relative transition-colors"
+                                        :class="source.enabled ? 'bg-brand-500' : 'bg-gray-300'">
+                                  <span class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
+                                        :class="source.enabled ? 'right-0.5' : 'left-0.5'"></span>
+                                </button>
+                              </div>
+                              <p class="text-sm font-medium text-gray-800" x-text="source.label"></p>
+                              <p class="text-[10px] text-gray-500 mt-1">
+                                <span x-text="getEnabledCount(source)"></span>/<span x-text="source.submodules.length"></span> submodules
+                                <span x-show="source.enabled && getTotalUrls(source) > 0" class="text-green-600 ml-1" x-text="'• ' + getTotalUrls(source) + ' URLs'"></span>
+                              </p>
+                              <p x-show="source.isFallback" class="text-[10px] text-yellow-600 mt-1">Fallback only</p>
+                            </div>
+
+                            <!-- Expanded Submodule Config -->
+                            <div x-show="expandedSource === key" x-transition @click.stop class="border-t border-gray-200 p-3 bg-gray-50">
+                              <p class="text-[10px] text-gray-500 mb-2 font-medium uppercase">Submodules</p>
+                              <div class="space-y-2">
+                                <template x-for="sub in source.submodules" :key="sub.id">
+                                  <div class="flex items-center justify-between bg-white rounded p-2 border cursor-pointer hover:bg-gray-50 transition-colors group"
+                                       :class="sub.enabled ? 'border-brand-200' : 'border-gray-200 opacity-60'"
+                                       @click="$root.openResultsPanel(sub, source)">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                      <input type="checkbox" :checked="sub.enabled" @click.stop @change="toggleSubmodule(key, sub.id)"
+                                             class="rounded border-gray-300 text-brand-600">
+                                      <div class="min-w-0">
+                                        <p class="text-xs font-medium text-gray-700 truncate" x-text="sub.name"></p>
+                                        <p class="text-[10px] text-gray-400 truncate" x-text="sub.description"></p>
+                                      </div>
+                                    </div>
+                                    <div class="flex items-center gap-1 flex-shrink-0 ml-2">
+                                      <span :class="getCostClass(sub.cost)" class="text-[8px] px-1.5 py-0.5 rounded" x-text="sub.cost"></span>
+                                      <span x-show="sub.lastResult" class="text-[10px] text-gray-500 group-hover:hidden" x-text="sub.lastResult"></span>
+                                      <span class="text-[10px] text-brand-500 hidden group-hover:inline">View →</span>
+                                    </div>
+                                  </div>
+                                </template>
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+
+                      <!-- Global Settings -->
+                      <div class="grid grid-cols-3 gap-4 mb-4">
+                        <div><label class="block text-xs text-gray-500 mb-1">Min URLs per entity</label><input type="number" value="10" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></div>
+                        <div><label class="block text-xs text-gray-500 mb-1">Max URLs per entity</label><input type="number" value="100" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></div>
+                        <div><label class="block text-xs text-gray-500 mb-1">Reuse cached</label><select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"><option>Yes (if fresh)</option><option>No (re-discover)</option></select></div>
+                      </div>
+
+                      <!-- Results Summary -->
+                      <div class="bg-gray-50 rounded p-3 border border-gray-200">
+                        <p class="text-xs text-gray-500 mb-2">Results Summary (mock)</p>
+                        <div class="flex flex-wrap gap-3 text-sm">
+                          <span class="text-gray-700"><span class="font-medium">48</span> total URLs</span>
+                          <span class="text-green-600">Website: 25</span>
+                          <span class="text-green-600">News: 15</span>
+                          <span class="text-green-600">YouTube: 8</span>
+                          <span class="text-gray-400">LinkedIn: —</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 3: Source Validation (Card-Based Validators) -->
+                    <div x-show="i === 3" x-data="{
+                      expandedValidator: null,
+                      validators: {
+                        trust: { enabled: true, label: 'Trust & Authority', icon: '🛡️', submodules: [
+                          { id: 'domain-authority', name: 'Domain Authority', enabled: true, cost: 'cheap', description: 'Check DA score (min: 10)', config: { min: 10 }, lastResult: '42 passed' },
+                          { id: 'trust-tier', name: 'Trust Tier', enabled: true, cost: 'cheap', description: 'Whitelist/tier check', config: { tier: 'any' }, lastResult: '48 passed' },
+                          { id: 'ssl-check', name: 'SSL Certificate', enabled: false, cost: 'cheap', description: 'Require valid HTTPS', lastResult: null }
+                        ]},
+                        policy: { enabled: true, label: 'Policy & Compliance', icon: '📋', submodules: [
+                          { id: 'blocked-domains', name: 'Blocked Domains', enabled: true, cost: 'cheap', description: 'Filter blocked sites', config: { list: [] }, lastResult: '2 blocked' },
+                          { id: 'robots-txt', name: 'Robots.txt', enabled: true, cost: 'cheap', description: 'Respect crawl rules', lastResult: '1 blocked' },
+                          { id: 'paywall-detect', name: 'Paywall Detection', enabled: false, cost: 'medium', description: 'Skip paywalled content', lastResult: null }
+                        ]},
+                        content: { enabled: true, label: 'Content Quality', icon: '✅', submodules: [
+                          { id: 'language-check', name: 'Language Filter', enabled: true, cost: 'cheap', description: 'Match required language', config: { lang: 'en' }, lastResult: '46 passed' },
+                          { id: 'freshness', name: 'Freshness Check', enabled: false, cost: 'cheap', description: 'Filter by publish date', config: { maxAge: '365d' }, lastResult: null },
+                          { id: 'relevance-score', name: 'Relevance Score', enabled: true, cost: 'medium', description: 'AI relevance check', lastResult: '40 relevant' }
+                        ]},
+                        technical: { enabled: false, label: 'Technical', icon: '⚙️', submodules: [
+                          { id: 'response-time', name: 'Response Time', enabled: false, cost: 'cheap', description: 'Max load time (5s)', lastResult: null },
+                          { id: 'content-type', name: 'Content Type', enabled: false, cost: 'cheap', description: 'HTML only / allow PDF', lastResult: null }
+                        ]}
+                      },
+                      toggleValidator(key) { this.validators[key].enabled = !this.validators[key].enabled; },
+                      toggleSubmodule(valKey, subId) {
+                        const sub = this.validators[valKey].submodules.find(s => s.id === subId);
+                        if (sub) sub.enabled = !sub.enabled;
+                      },
+                      getEnabledCount(val) { return val.submodules.filter(s => s.enabled).length; },
+                      getCostClass(cost) {
+                        return { cheap: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700', expensive: 'bg-orange-100 text-orange-700' }[cost];
+                      }
+                    }">
+                      <div class="bg-orange-50 rounded p-3 border border-orange-200 mb-4">
+                        <p class="text-xs text-orange-700 font-medium mb-1">Filter Step</p>
+                        <p class="text-xs text-gray-600">URLs that fail validation are marked <code class="bg-orange-100 px-1 rounded">filtered_step3</code>. Metadata persists; body purged after 7 days.</p>
+                      </div>
+
+                      <!-- Validator Cards Grid -->
+                      <p class="text-xs text-gray-500 mb-3">Validation Rules (click to configure)</p>
+                      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                        <template x-for="(val, key) in validators" :key="key">
+                          <div class="rounded-lg border transition-all cursor-pointer"
+                               :class="val.enabled ? 'bg-white border-brand-300 shadow-sm' : 'bg-gray-50 border-gray-200 opacity-60'"
+                               @click="expandedValidator = expandedValidator === key ? null : key">
+                            <div class="p-3">
+                              <div class="flex items-center justify-between mb-2">
+                                <span class="text-lg" x-text="val.icon"></span>
+                                <button @click.stop="toggleValidator(key)"
+                                        class="w-8 h-4 rounded-full relative transition-colors"
+                                        :class="val.enabled ? 'bg-brand-500' : 'bg-gray-300'">
+                                  <span class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
+                                        :class="val.enabled ? 'right-0.5' : 'left-0.5'"></span>
+                                </button>
+                              </div>
+                              <p class="text-sm font-medium text-gray-800" x-text="val.label"></p>
+                              <p class="text-[10px] text-gray-500 mt-1">
+                                <span x-text="getEnabledCount(val)"></span>/<span x-text="val.submodules.length"></span> checks active
+                              </p>
+                            </div>
+
+                            <!-- Expanded Submodule Config -->
+                            <div x-show="expandedValidator === key" x-transition @click.stop class="border-t border-gray-200 p-3 bg-gray-50">
+                              <p class="text-[10px] text-gray-500 mb-2 font-medium uppercase">Validation Checks</p>
+                              <div class="space-y-2">
+                                <template x-for="sub in val.submodules" :key="sub.id">
+                                  <div class="flex items-center justify-between bg-white rounded p-2 border cursor-pointer hover:bg-gray-50 transition-colors group"
+                                       :class="sub.enabled ? 'border-brand-200' : 'border-gray-200 opacity-60'"
+                                       @click="$root.openResultsPanel(sub, val)">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                      <input type="checkbox" :checked="sub.enabled" @click.stop @change="toggleSubmodule(key, sub.id)"
+                                             class="rounded border-gray-300 text-brand-600">
+                                      <div class="min-w-0">
+                                        <p class="text-xs font-medium text-gray-700 truncate" x-text="sub.name"></p>
+                                        <p class="text-[10px] text-gray-400 truncate" x-text="sub.description"></p>
+                                      </div>
+                                    </div>
+                                    <div class="flex items-center gap-1 flex-shrink-0 ml-2">
+                                      <span :class="getCostClass(sub.cost)" class="text-[8px] px-1.5 py-0.5 rounded" x-text="sub.cost"></span>
+                                      <span x-show="sub.lastResult" class="text-[10px] text-gray-500 group-hover:hidden" x-text="sub.lastResult"></span>
+                                      <span class="text-[10px] text-brand-500 hidden group-hover:inline">View →</span>
+                                    </div>
+                                  </div>
+                                </template>
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+
+                      <!-- Results Summary -->
+                      <div class="bg-gray-50 rounded p-3 border border-gray-200">
+                        <p class="text-xs text-gray-500 mb-2">Validation Results (mock)</p>
+                        <div class="flex flex-wrap gap-4 text-sm">
+                          <span class="text-green-600"><span class="font-medium">40</span> passed</span>
+                          <span class="text-red-600"><span class="font-medium">8</span> rejected</span>
+                          <span class="text-gray-500">83% pass rate</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 4: Content Extraction (Card-Based Extractors) -->
+                    <div x-show="i === 4" x-data="{
+                      expandedExtractor: null,
+                      extractors: {
+                        engines: { enabled: true, label: 'Extraction Engines', icon: '⚡', submodules: [
+                          { id: 'cheerio', name: 'Cheerio', enabled: true, cost: 'cheap', description: 'Fast HTML parsing', lastResult: '38 pages' },
+                          { id: 'playwright', name: 'Playwright', enabled: true, cost: 'medium', description: 'JS-rendered content', lastResult: '2 fallback' },
+                          { id: 'jsdom', name: 'JSDOM', enabled: false, cost: 'cheap', description: 'DOM simulation', lastResult: null },
+                          { id: 'puppeteer', name: 'Puppeteer', enabled: false, cost: 'medium', description: 'Chrome headless', lastResult: null }
+                        ]},
+                        content: { enabled: true, label: 'Content Types', icon: '📄', submodules: [
+                          { id: 'text-content', name: 'Text Content', enabled: true, cost: 'cheap', description: 'Main body text', lastResult: '40 pages' },
+                          { id: 'html-structure', name: 'HTML Structure', enabled: true, cost: 'cheap', description: 'Preserve formatting', lastResult: '40 pages' },
+                          { id: 'json-ld', name: 'JSON-LD', enabled: true, cost: 'cheap', description: 'Structured data', lastResult: '12 found' },
+                          { id: 'meta-tags', name: 'Meta Tags', enabled: true, cost: 'cheap', description: 'Title, description, OG', lastResult: '40 pages' }
+                        ]},
+                        media: { enabled: false, label: 'Media', icon: '🖼️', submodules: [
+                          { id: 'images', name: 'Images', enabled: false, cost: 'medium', description: 'Download images', lastResult: null },
+                          { id: 'videos', name: 'Video Embeds', enabled: false, cost: 'cheap', description: 'Extract video URLs', lastResult: null },
+                          { id: 'pdfs', name: 'PDF Content', enabled: false, cost: 'medium', description: 'Parse PDF text', lastResult: null }
+                        ]},
+                        special: { enabled: false, label: 'Specialized', icon: '🔬', submodules: [
+                          { id: 'tables', name: 'Tables', enabled: false, cost: 'cheap', description: 'Extract table data', lastResult: null },
+                          { id: 'forms', name: 'Forms', enabled: false, cost: 'cheap', description: 'Form field data', lastResult: null },
+                          { id: 'comments', name: 'Comments', enabled: false, cost: 'medium', description: 'User comments', lastResult: null }
+                        ]}
+                      },
+                      toggleExtractor(key) { this.extractors[key].enabled = !this.extractors[key].enabled; },
+                      toggleSubmodule(extKey, subId) {
+                        const sub = this.extractors[extKey].submodules.find(s => s.id === subId);
+                        if (sub) sub.enabled = !sub.enabled;
+                      },
+                      getEnabledCount(ext) { return ext.submodules.filter(s => s.enabled).length; },
+                      getCostClass(cost) {
+                        return { cheap: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700', expensive: 'bg-orange-100 text-orange-700' }[cost];
+                      }
+                    }">
+                      <div class="bg-purple-50 rounded p-3 border border-purple-200 mb-4">
+                        <p class="text-xs text-purple-700 font-medium mb-1">Content Extraction</p>
+                        <p class="text-xs text-gray-600">Choose extraction engines and what content types to extract. Cheerio runs first; Playwright as fallback for JS-heavy sites.</p>
+                      </div>
+
+                      <!-- Extractor Cards Grid -->
+                      <p class="text-xs text-gray-500 mb-3">Extraction Configuration (click to configure)</p>
+                      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                        <template x-for="(ext, key) in extractors" :key="key">
+                          <div class="rounded-lg border transition-all cursor-pointer"
+                               :class="ext.enabled ? 'bg-white border-brand-300 shadow-sm' : 'bg-gray-50 border-gray-200 opacity-60'"
+                               @click="expandedExtractor = expandedExtractor === key ? null : key">
+                            <div class="p-3">
+                              <div class="flex items-center justify-between mb-2">
+                                <span class="text-lg" x-text="ext.icon"></span>
+                                <button @click.stop="toggleExtractor(key)"
+                                        class="w-8 h-4 rounded-full relative transition-colors"
+                                        :class="ext.enabled ? 'bg-brand-500' : 'bg-gray-300'">
+                                  <span class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
+                                        :class="ext.enabled ? 'right-0.5' : 'left-0.5'"></span>
+                                </button>
+                              </div>
+                              <p class="text-sm font-medium text-gray-800" x-text="ext.label"></p>
+                              <p class="text-[10px] text-gray-500 mt-1">
+                                <span x-text="getEnabledCount(ext)"></span>/<span x-text="ext.submodules.length"></span> active
+                              </p>
+                            </div>
+
+                            <!-- Expanded Submodule Config -->
+                            <div x-show="expandedExtractor === key" x-transition @click.stop class="border-t border-gray-200 p-3 bg-gray-50">
+                              <p class="text-[10px] text-gray-500 mb-2 font-medium uppercase">Submodules</p>
+                              <div class="space-y-2">
+                                <template x-for="sub in ext.submodules" :key="sub.id">
+                                  <div class="flex items-center justify-between bg-white rounded p-2 border cursor-pointer hover:bg-gray-50 transition-colors group"
+                                       :class="sub.enabled ? 'border-brand-200' : 'border-gray-200 opacity-60'"
+                                       @click="$root.openResultsPanel(sub, ext)">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                      <input type="checkbox" :checked="sub.enabled" @click.stop @change="toggleSubmodule(key, sub.id)"
+                                             class="rounded border-gray-300 text-brand-600">
+                                      <div class="min-w-0">
+                                        <p class="text-xs font-medium text-gray-700 truncate" x-text="sub.name"></p>
+                                        <p class="text-[10px] text-gray-400 truncate" x-text="sub.description"></p>
+                                      </div>
+                                    </div>
+                                    <div class="flex items-center gap-1 flex-shrink-0 ml-2">
+                                      <span :class="getCostClass(sub.cost)" class="text-[8px] px-1.5 py-0.5 rounded" x-text="sub.cost"></span>
+                                      <span x-show="sub.lastResult" class="text-[10px] text-gray-500 group-hover:hidden" x-text="sub.lastResult"></span>
+                                      <span class="text-[10px] text-brand-500 hidden group-hover:inline">View →</span>
+                                    </div>
+                                  </div>
+                                </template>
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+
+                      <!-- Global Settings -->
+                      <div class="grid grid-cols-3 gap-4 mb-4">
+                        <div><label class="block text-xs text-gray-500 mb-1">Timeout (seconds)</label><input type="number" value="30" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></div>
+                        <div><label class="block text-xs text-gray-500 mb-1">Retry failed</label><select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"><option>Once with fallback</option><option>No retry</option><option>3 times</option></select></div>
+                        <div><label class="block text-xs text-gray-500 mb-1">Concurrent requests</label><input type="number" value="5" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></div>
+                      </div>
+
+                      <!-- Results Summary -->
+                      <div class="bg-gray-50 rounded p-3 border border-gray-200">
+                        <p class="text-xs text-gray-500 mb-2">Extraction Results (mock)</p>
+                        <div class="flex flex-wrap gap-4 text-sm">
+                          <span class="text-green-600"><span class="font-medium">38</span> extracted</span>
+                          <span class="text-yellow-600"><span class="font-medium">2</span> timeouts</span>
+                          <span class="text-gray-500">avg <span class="font-medium">1,250</span> words</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 5: Filtering & Adaptive Crawl (Card-Based Filters) -->
+                    <div x-show="i === 5" x-data="{
+                      expandedFilter: null,
+                      filters: {
+                        dedup: { enabled: true, label: 'Deduplication', icon: '🔄', submodules: [
+                          { id: 'exact-dedup', name: 'Exact Match', enabled: true, cost: 'cheap', description: 'Remove identical content', lastResult: '2 removed' },
+                          { id: 'similarity-dedup', name: 'Similarity Check', enabled: true, cost: 'medium', description: 'Fuzzy dedup (85% threshold)', config: { threshold: 0.85 }, lastResult: '1 removed' },
+                          { id: 'url-dedup', name: 'URL Normalization', enabled: true, cost: 'cheap', description: 'Dedupe by canonical URL', lastResult: '0 removed' }
+                        ]},
+                        quality: { enabled: true, label: 'Quality Filters', icon: '📊', submodules: [
+                          { id: 'min-words', name: 'Min Word Count', enabled: true, cost: 'cheap', description: 'Require 100+ words', config: { min: 100 }, lastResult: '2 filtered' },
+                          { id: 'boilerplate', name: 'Boilerplate Removal', enabled: true, cost: 'cheap', description: 'Strip nav/footer text', lastResult: '35 cleaned' },
+                          { id: 'readability', name: 'Readability Score', enabled: false, cost: 'cheap', description: 'Min readability level', lastResult: null }
+                        ]},
+                        relevance: { enabled: true, label: 'Relevance', icon: '🎯', submodules: [
+                          { id: 'topic-match', name: 'Topic Relevance', enabled: true, cost: 'medium', description: 'AI relevance check', lastResult: '2 irrelevant' },
+                          { id: 'entity-match', name: 'Entity Match', enabled: true, cost: 'cheap', description: 'Mentions target entity', lastResult: '33 matched' },
+                          { id: 'keyword-filter', name: 'Keyword Filter', enabled: false, cost: 'cheap', description: 'Required keywords', lastResult: null }
+                        ]},
+                        adaptive: { enabled: true, label: 'Adaptive Crawl', icon: '🔁', submodules: [
+                          { id: 'depth-expansion', name: 'Depth Expansion', enabled: true, cost: 'medium', description: 'Crawl deeper if needed', lastResult: '+5 URLs' },
+                          { id: 'related-links', name: 'Related Links', enabled: false, cost: 'medium', description: 'Follow related content', lastResult: null }
+                        ], isSpecial: true }
+                      },
+                      toggleFilter(key) { this.filters[key].enabled = !this.filters[key].enabled; },
+                      toggleSubmodule(filtKey, subId) {
+                        const sub = this.filters[filtKey].submodules.find(s => s.id === subId);
+                        if (sub) sub.enabled = !sub.enabled;
+                      },
+                      getEnabledCount(filt) { return filt.submodules.filter(s => s.enabled).length; },
+                      getCostClass(cost) {
+                        return { cheap: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700', expensive: 'bg-orange-100 text-orange-700' }[cost];
+                      }
+                    }">
+                      <div class="bg-orange-50 rounded p-3 border border-orange-200 mb-4">
+                        <p class="text-xs text-orange-700 font-medium mb-1">Filter Step</p>
+                        <p class="text-xs text-gray-600">Content that fails filtering is marked <code class="bg-orange-100 px-1 rounded">filtered_step5</code>. Adaptive crawl can expand discovery if content is below goal.</p>
+                      </div>
+
+                      <!-- Filter Cards Grid -->
+                      <p class="text-xs text-gray-500 mb-3">Filter Configuration (click to configure)</p>
+                      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                        <template x-for="(filt, key) in filters" :key="key">
+                          <div class="rounded-lg border transition-all cursor-pointer"
+                               :class="filt.enabled ? 'bg-white border-brand-300 shadow-sm' : 'bg-gray-50 border-gray-200 opacity-60'"
+                               @click="expandedFilter = expandedFilter === key ? null : key">
+                            <div class="p-3">
+                              <div class="flex items-center justify-between mb-2">
+                                <span class="text-lg" x-text="filt.icon"></span>
+                                <button @click.stop="toggleFilter(key)"
+                                        class="w-8 h-4 rounded-full relative transition-colors"
+                                        :class="filt.enabled ? 'bg-brand-500' : 'bg-gray-300'">
+                                  <span class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
+                                        :class="filt.enabled ? 'right-0.5' : 'left-0.5'"></span>
+                                </button>
+                              </div>
+                              <p class="text-sm font-medium text-gray-800" x-text="filt.label"></p>
+                              <p class="text-[10px] text-gray-500 mt-1">
+                                <span x-text="getEnabledCount(filt)"></span>/<span x-text="filt.submodules.length"></span> active
+                              </p>
+                              <p x-show="filt.isSpecial" class="text-[10px] text-blue-600 mt-1">Loop back to Step 2</p>
+                            </div>
+
+                            <!-- Expanded Submodule Config -->
+                            <div x-show="expandedFilter === key" x-transition @click.stop class="border-t border-gray-200 p-3 bg-gray-50">
+                              <p class="text-[10px] text-gray-500 mb-2 font-medium uppercase">Submodules</p>
+                              <div class="space-y-2">
+                                <template x-for="sub in filt.submodules" :key="sub.id">
+                                  <div class="flex items-center justify-between bg-white rounded p-2 border cursor-pointer hover:bg-gray-50 transition-colors group"
+                                       :class="sub.enabled ? 'border-brand-200' : 'border-gray-200 opacity-60'"
+                                       @click="$root.openResultsPanel(sub, filt)">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                      <input type="checkbox" :checked="sub.enabled" @click.stop @change="toggleSubmodule(key, sub.id)"
+                                             class="rounded border-gray-300 text-brand-600">
+                                      <div class="min-w-0">
+                                        <p class="text-xs font-medium text-gray-700 truncate" x-text="sub.name"></p>
+                                        <p class="text-[10px] text-gray-400 truncate" x-text="sub.description"></p>
+                                      </div>
+                                    </div>
+                                    <div class="flex items-center gap-1 flex-shrink-0 ml-2">
+                                      <span :class="getCostClass(sub.cost)" class="text-[8px] px-1.5 py-0.5 rounded" x-text="sub.cost"></span>
+                                      <span x-show="sub.lastResult" class="text-[10px] text-gray-500 group-hover:hidden" x-text="sub.lastResult"></span>
+                                      <span class="text-[10px] text-brand-500 hidden group-hover:inline">View →</span>
+                                    </div>
+                                  </div>
+                                </template>
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+
+                      <!-- Results Summary -->
+                      <div class="bg-gray-50 rounded p-3 border border-gray-200">
+                        <p class="text-xs text-gray-500 mb-2">Filter Results (mock)</p>
+                        <div class="flex flex-wrap gap-4 text-sm">
+                          <span class="text-green-600"><span class="font-medium">33</span> passed</span>
+                          <span class="text-orange-600"><span class="font-medium">3</span> duplicates</span>
+                          <span class="text-orange-600"><span class="font-medium">2</span> too short</span>
+                          <span class="text-orange-600"><span class="font-medium">2</span> irrelevant</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 6: Analysis & Generation (Card-Based Generators) -->
+                    <div x-show="i === 6" x-data="{
+                      expandedGenerator: null,
+                      generators: {
+                        models: { enabled: true, label: 'AI Models', icon: '🤖', submodules: [
+                          { id: 'gpt-4o', name: 'GPT-4o', enabled: true, cost: 'expensive', description: 'Best quality, slower', lastResult: '1 call' },
+                          { id: 'gpt-4o-mini', name: 'GPT-4o-mini', enabled: false, cost: 'medium', description: 'Good balance', lastResult: null },
+                          { id: 'claude-sonnet', name: 'Claude Sonnet', enabled: false, cost: 'expensive', description: 'Strong reasoning', lastResult: null },
+                          { id: 'claude-haiku', name: 'Claude Haiku', enabled: false, cost: 'cheap', description: 'Fast, cost-effective', lastResult: null },
+                          { id: 'gemini-pro', name: 'Gemini Pro', enabled: false, cost: 'medium', description: 'Google AI', lastResult: null }
+                        ]},
+                        types: { enabled: true, label: 'Generation Types', icon: '📝', submodules: [
+                          { id: 'profile', name: 'Company Profile', enabled: true, cost: 'expensive', description: 'Full structured profile', lastResult: '1 generated' },
+                          { id: 'summary', name: 'Summary', enabled: false, cost: 'medium', description: 'Concise overview', lastResult: null },
+                          { id: 'article', name: 'Article Rewrite', enabled: false, cost: 'medium', description: 'News article format', lastResult: null },
+                          { id: 'faq', name: 'FAQ Generation', enabled: false, cost: 'medium', description: 'Q&A format', lastResult: null },
+                          { id: 'analysis', name: 'Analysis Report', enabled: false, cost: 'expensive', description: 'In-depth analysis', lastResult: null }
+                        ]},
+                        tagging: { enabled: true, label: 'Auto-tagging', icon: '🏷️', submodules: [
+                          { id: 'entity-extract', name: 'Entity Extraction', enabled: true, cost: 'medium', description: 'LLM-based NER', lastResult: '47 entities' },
+                          { id: 'topic-classify', name: 'Topic Classification', enabled: true, cost: 'medium', description: 'Categorize content', lastResult: '12 topics' },
+                          { id: 'rule-based', name: 'Rule-based Tags', enabled: false, cost: 'cheap', description: 'Keyword matching', lastResult: null },
+                          { id: 'confidence', name: 'Confidence Scores', enabled: true, cost: 'cheap', description: 'Add confidence values', lastResult: '0.92 avg' }
+                        ]},
+                        output: { enabled: true, label: 'Output Formats', icon: '📄', submodules: [
+                          { id: 'markdown', name: 'Markdown', enabled: true, cost: 'cheap', description: 'Standard markdown', lastResult: 'primary' },
+                          { id: 'html', name: 'HTML', enabled: false, cost: 'cheap', description: 'Formatted HTML', lastResult: null },
+                          { id: 'json', name: 'JSON', enabled: true, cost: 'cheap', description: 'Structured data', lastResult: 'generated' }
+                        ]}
+                      },
+                      toggleGenerator(key) { this.generators[key].enabled = !this.generators[key].enabled; },
+                      toggleSubmodule(genKey, subId) {
+                        const sub = this.generators[genKey].submodules.find(s => s.id === subId);
+                        if (sub) sub.enabled = !sub.enabled;
+                      },
+                      getEnabledCount(gen) { return gen.submodules.filter(s => s.enabled).length; },
+                      getCostClass(cost) {
+                        return { cheap: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700', expensive: 'bg-orange-100 text-orange-700' }[cost];
+                      }
+                    }">
+                      <div class="bg-indigo-50 rounded p-3 border border-indigo-200 mb-4">
+                        <p class="text-xs text-indigo-700 font-medium mb-1">Content Generation</p>
+                        <p class="text-xs text-gray-600">Configure AI models, generation types, and auto-tagging. Multiple models can be used for different tasks or as fallbacks.</p>
+                      </div>
+
+                      <!-- Generator Cards Grid -->
+                      <p class="text-xs text-gray-500 mb-3">Generation Configuration (click to configure)</p>
+                      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                        <template x-for="(gen, key) in generators" :key="key">
+                          <div class="rounded-lg border transition-all cursor-pointer"
+                               :class="gen.enabled ? 'bg-white border-brand-300 shadow-sm' : 'bg-gray-50 border-gray-200 opacity-60'"
+                               @click="expandedGenerator = expandedGenerator === key ? null : key">
+                            <div class="p-3">
+                              <div class="flex items-center justify-between mb-2">
+                                <span class="text-lg" x-text="gen.icon"></span>
+                                <button @click.stop="toggleGenerator(key)"
+                                        class="w-8 h-4 rounded-full relative transition-colors"
+                                        :class="gen.enabled ? 'bg-brand-500' : 'bg-gray-300'">
+                                  <span class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
+                                        :class="gen.enabled ? 'right-0.5' : 'left-0.5'"></span>
+                                </button>
+                              </div>
+                              <p class="text-sm font-medium text-gray-800" x-text="gen.label"></p>
+                              <p class="text-[10px] text-gray-500 mt-1">
+                                <span x-text="getEnabledCount(gen)"></span>/<span x-text="gen.submodules.length"></span> active
+                              </p>
+                            </div>
+
+                            <!-- Expanded Submodule Config -->
+                            <div x-show="expandedGenerator === key" x-transition @click.stop class="border-t border-gray-200 p-3 bg-gray-50">
+                              <p class="text-[10px] text-gray-500 mb-2 font-medium uppercase">Submodules</p>
+                              <div class="space-y-2">
+                                <template x-for="sub in gen.submodules" :key="sub.id">
+                                  <div class="flex items-center justify-between bg-white rounded p-2 border cursor-pointer hover:bg-gray-50 transition-colors group"
+                                       :class="sub.enabled ? 'border-brand-200' : 'border-gray-200 opacity-60'"
+                                       @click="$root.openResultsPanel(sub, gen)">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                      <input type="checkbox" :checked="sub.enabled" @click.stop @change="toggleSubmodule(key, sub.id)"
+                                             class="rounded border-gray-300 text-brand-600">
+                                      <div class="min-w-0">
+                                        <p class="text-xs font-medium text-gray-700 truncate" x-text="sub.name"></p>
+                                        <p class="text-[10px] text-gray-400 truncate" x-text="sub.description"></p>
+                                      </div>
+                                    </div>
+                                    <div class="flex items-center gap-1 flex-shrink-0 ml-2">
+                                      <span :class="getCostClass(sub.cost)" class="text-[8px] px-1.5 py-0.5 rounded" x-text="sub.cost"></span>
+                                      <span x-show="sub.lastResult" class="text-[10px] text-gray-500 group-hover:hidden" x-text="sub.lastResult"></span>
+                                      <span class="text-[10px] text-brand-500 hidden group-hover:inline">View →</span>
+                                    </div>
+                                  </div>
+                                </template>
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+
+                      <!-- Global Settings -->
+                      <div class="grid grid-cols-3 gap-4 mb-4">
+                        <div><label class="block text-xs text-gray-500 mb-1">Temperature</label><input type="number" value="0.3" step="0.1" min="0" max="1" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></div>
+                        <div><label class="block text-xs text-gray-500 mb-1">Max Tokens</label><input type="number" value="4000" step="500" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></div>
+                        <div><label class="block text-xs text-gray-500 mb-1">Fallback Model</label><select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"><option>GPT-4o-mini</option><option>Claude Haiku</option><option>None</option></select></div>
+                      </div>
+
+                      <!-- Results Summary -->
+                      <div class="bg-gray-50 rounded p-3 border border-gray-200">
+                        <p class="text-xs text-gray-500 mb-2">Generation Results (mock)</p>
+                        <div class="flex flex-wrap gap-4 text-sm">
+                          <span class="text-green-600"><span class="font-medium">1</span> profile generated</span>
+                          <span class="text-blue-600"><span class="font-medium">28</span> sources used</span>
+                          <span class="text-purple-600"><span class="font-medium">127</span> tags applied</span>
+                          <span class="text-gray-500">avg confidence: <span class="font-medium">0.92</span></span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 7: Validation & QA (Card-Based QA Checks) -->
+                    <div x-show="i === 7" x-data="{
+                      expandedQA: null,
+                      qaChecks: {
+                        accuracy: { enabled: true, label: 'Accuracy', icon: '🔍', submodules: [
+                          { id: 'fact-verify', name: 'Fact Verification', enabled: true, cost: 'expensive', description: 'Cross-check with sources', lastResult: 'pass' },
+                          { id: 'hallucination', name: 'Hallucination Detection', enabled: true, cost: 'expensive', description: 'Detect unsupported claims', lastResult: 'pass' },
+                          { id: 'citation-check', name: 'Citation Check', enabled: true, cost: 'cheap', description: 'Verify all citations exist', lastResult: 'pass' }
+                        ]},
+                        structure: { enabled: true, label: 'Structure', icon: '📐', submodules: [
+                          { id: 'format-valid', name: 'Format Validation', enabled: true, cost: 'cheap', description: 'Check output format', lastResult: 'pass' },
+                          { id: 'completeness', name: 'Completeness Check', enabled: true, cost: 'cheap', description: 'All required fields', lastResult: 'pass' },
+                          { id: 'schema-valid', name: 'Schema Validation', enabled: false, cost: 'cheap', description: 'Validate JSON schema', lastResult: null }
+                        ]},
+                        quality: { enabled: true, label: 'Quality', icon: '⭐', submodules: [
+                          { id: 'readability', name: 'Readability Score', enabled: false, cost: 'cheap', description: 'Flesch-Kincaid score', lastResult: null },
+                          { id: 'grammar', name: 'Grammar Check', enabled: false, cost: 'cheap', description: 'Spelling & grammar', lastResult: null },
+                          { id: 'consistency', name: 'Consistency', enabled: true, cost: 'medium', description: 'Style consistency', lastResult: 'pass' }
+                        ]},
+                        seo: { enabled: false, label: 'SEO', icon: '🔎', submodules: [
+                          { id: 'meta-tags', name: 'Meta Tags', enabled: false, cost: 'cheap', description: 'Title, description length', lastResult: null },
+                          { id: 'keyword-density', name: 'Keyword Density', enabled: false, cost: 'cheap', description: 'Check keyword usage', lastResult: null },
+                          { id: 'heading-structure', name: 'Heading Structure', enabled: false, cost: 'cheap', description: 'H1-H6 hierarchy', lastResult: null }
+                        ]}
+                      },
+                      toggleQA(key) { this.qaChecks[key].enabled = !this.qaChecks[key].enabled; },
+                      toggleSubmodule(qaKey, subId) {
+                        const sub = this.qaChecks[qaKey].submodules.find(s => s.id === subId);
+                        if (sub) sub.enabled = !sub.enabled;
+                      },
+                      getEnabledCount(qa) { return qa.submodules.filter(s => s.enabled).length; },
+                      getCostClass(cost) {
+                        return { cheap: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700', expensive: 'bg-orange-100 text-orange-700' }[cost];
+                      },
+                      getResultClass(result) {
+                        if (result === 'pass') return 'text-green-600';
+                        if (result === 'fail') return 'text-red-600';
+                        return 'text-gray-500';
+                      }
+                    }">
+                      <div class="bg-teal-50 rounded p-3 border border-teal-200 mb-4">
+                        <p class="text-xs text-teal-700 font-medium mb-1">Quality Assurance</p>
+                        <p class="text-xs text-gray-600">Configure QA checks to validate generated content. Failed checks can trigger regeneration or flag for manual review.</p>
+                      </div>
+
+                      <!-- QA Cards Grid -->
+                      <p class="text-xs text-gray-500 mb-3">QA Configuration (click to configure)</p>
+                      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                        <template x-for="(qa, key) in qaChecks" :key="key">
+                          <div class="rounded-lg border transition-all cursor-pointer"
+                               :class="qa.enabled ? 'bg-white border-brand-300 shadow-sm' : 'bg-gray-50 border-gray-200 opacity-60'"
+                               @click="expandedQA = expandedQA === key ? null : key">
+                            <div class="p-3">
+                              <div class="flex items-center justify-between mb-2">
+                                <span class="text-lg" x-text="qa.icon"></span>
+                                <button @click.stop="toggleQA(key)"
+                                        class="w-8 h-4 rounded-full relative transition-colors"
+                                        :class="qa.enabled ? 'bg-brand-500' : 'bg-gray-300'">
+                                  <span class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
+                                        :class="qa.enabled ? 'right-0.5' : 'left-0.5'"></span>
+                                </button>
+                              </div>
+                              <p class="text-sm font-medium text-gray-800" x-text="qa.label"></p>
+                              <p class="text-[10px] text-gray-500 mt-1">
+                                <span x-text="getEnabledCount(qa)"></span>/<span x-text="qa.submodules.length"></span> checks
+                              </p>
+                            </div>
+
+                            <!-- Expanded Submodule Config -->
+                            <div x-show="expandedQA === key" x-transition @click.stop class="border-t border-gray-200 p-3 bg-gray-50">
+                              <p class="text-[10px] text-gray-500 mb-2 font-medium uppercase">Checks</p>
+                              <div class="space-y-2">
+                                <template x-for="sub in qa.submodules" :key="sub.id">
+                                  <div class="flex items-center justify-between bg-white rounded p-2 border cursor-pointer hover:bg-gray-50 transition-colors group"
+                                       :class="sub.enabled ? 'border-brand-200' : 'border-gray-200 opacity-60'"
+                                       @click="$root.openResultsPanel(sub, qa)">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                      <input type="checkbox" :checked="sub.enabled" @click.stop @change="toggleSubmodule(key, sub.id)"
+                                             class="rounded border-gray-300 text-brand-600">
+                                      <div class="min-w-0">
+                                        <p class="text-xs font-medium text-gray-700 truncate" x-text="sub.name"></p>
+                                        <p class="text-[10px] text-gray-400 truncate" x-text="sub.description"></p>
+                                      </div>
+                                    </div>
+                                    <div class="flex items-center gap-1 flex-shrink-0 ml-2">
+                                      <span :class="getCostClass(sub.cost)" class="text-[8px] px-1.5 py-0.5 rounded" x-text="sub.cost"></span>
+                                      <span x-show="sub.lastResult" :class="getResultClass(sub.lastResult)" class="text-[10px] font-medium group-hover:hidden" x-text="sub.lastResult"></span>
+                                      <span class="text-[10px] text-brand-500 hidden group-hover:inline">View →</span>
+                                    </div>
+                                  </div>
+                                </template>
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+
+                      <!-- Global Settings -->
+                      <div class="grid grid-cols-3 gap-4 mb-4">
+                        <div><label class="block text-xs text-gray-500 mb-1">Min Quality Score</label><input type="number" value="0.85" step="0.05" min="0" max="1" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></div>
+                        <div><label class="block text-xs text-gray-500 mb-1">Auto-approve above</label><input type="number" value="0.95" step="0.05" min="0" max="1" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></div>
+                        <div><label class="block text-xs text-gray-500 mb-1">On Failure</label><select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"><option>Flag for review</option><option>Regenerate</option><option>Skip</option></select></div>
+                      </div>
+
+                      <!-- Results Summary -->
+                      <div class="bg-gray-50 rounded p-3 border border-gray-200">
+                        <p class="text-xs text-gray-500 mb-2">QA Results (mock)</p>
+                        <div class="flex flex-wrap gap-4 text-sm">
+                          <span class="text-green-600">Score: <span class="font-medium">0.95</span></span>
+                          <span class="text-green-600">Facts: <span class="font-medium">pass</span></span>
+                          <span class="text-green-600">Structure: <span class="font-medium">pass</span></span>
+                          <span class="text-yellow-600">SEO: <span class="font-medium">skipped</span></span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 8: Routing & Flow (Card-Based Routing Rules) -->
+                    <div x-show="i === 8" x-data="{
+                      expandedRoute: null,
+                      routes: {
+                        quality: { enabled: true, label: 'Quality-Based', icon: '📊', submodules: [
+                          { id: 'high-quality', name: 'High Quality (≥0.9)', enabled: true, cost: 'cheap', description: 'Direct to bundling', action: 'Step 9', lastResult: '1 item' },
+                          { id: 'medium-quality', name: 'Medium (0.7-0.9)', enabled: true, cost: 'cheap', description: 'Manual review queue', action: 'Review', lastResult: '0 items' },
+                          { id: 'low-quality', name: 'Low (<0.7)', enabled: true, cost: 'cheap', description: 'Regenerate content', action: 'Step 6', lastResult: '0 items' }
+                        ]},
+                        content: { enabled: true, label: 'Content-Based', icon: '📝', submodules: [
+                          { id: 'content-complete', name: 'Complete Content', enabled: true, cost: 'cheap', description: 'All required fields present', action: 'Continue', lastResult: 'pass' },
+                          { id: 'content-partial', name: 'Partial Content', enabled: true, cost: 'cheap', description: 'Missing optional fields', action: 'Flag', lastResult: null },
+                          { id: 'content-insufficient', name: 'Insufficient', enabled: true, cost: 'cheap', description: 'Too few sources used', action: 'Step 2', lastResult: null }
+                        ]},
+                        retry: { enabled: true, label: 'Retry Logic', icon: '🔄', submodules: [
+                          { id: 'retry-once', name: 'Retry Once', enabled: true, cost: 'cheap', description: 'Retry failed stages once', lastResult: 'active' },
+                          { id: 'retry-multi', name: 'Retry Multiple', enabled: false, cost: 'cheap', description: 'Up to 3 retries', lastResult: null },
+                          { id: 'exponential-backoff', name: 'Exponential Backoff', enabled: false, cost: 'cheap', description: 'Delay between retries', lastResult: null }
+                        ]},
+                        loops: { enabled: true, label: 'Loop Triggers', icon: '🔁', submodules: [
+                          { id: 'content-goal', name: 'Content Goal', enabled: true, cost: 'medium', description: 'Re-discover if below target', action: 'Step 2', lastResult: 'not triggered' },
+                          { id: 'quality-loop', name: 'Quality Loop', enabled: false, cost: 'medium', description: 'Re-generate if low quality', action: 'Step 6', lastResult: null }
+                        ], isSpecial: true }
+                      },
+                      toggleRoute(key) { this.routes[key].enabled = !this.routes[key].enabled; },
+                      toggleSubmodule(routeKey, subId) {
+                        const sub = this.routes[routeKey].submodules.find(s => s.id === subId);
+                        if (sub) sub.enabled = !sub.enabled;
+                      },
+                      getEnabledCount(route) { return route.submodules.filter(s => s.enabled).length; },
+                      getCostClass(cost) {
+                        return { cheap: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700', expensive: 'bg-orange-100 text-orange-700' }[cost];
+                      }
+                    }">
+                      <div class="bg-cyan-50 rounded p-3 border border-cyan-200 mb-4">
+                        <p class="text-xs text-cyan-700 font-medium mb-1">Routing & Flow Control</p>
+                        <p class="text-xs text-gray-600">Define routing rules that determine where content goes based on quality, completeness, and other criteria. Enable loops for adaptive processing.</p>
+                      </div>
+
+                      <!-- Route Cards Grid -->
+                      <p class="text-xs text-gray-500 mb-3">Routing Configuration (click to configure)</p>
+                      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                        <template x-for="(route, key) in routes" :key="key">
+                          <div class="rounded-lg border transition-all cursor-pointer"
+                               :class="route.enabled ? 'bg-white border-brand-300 shadow-sm' : 'bg-gray-50 border-gray-200 opacity-60'"
+                               @click="expandedRoute = expandedRoute === key ? null : key">
+                            <div class="p-3">
+                              <div class="flex items-center justify-between mb-2">
+                                <span class="text-lg" x-text="route.icon"></span>
+                                <button @click.stop="toggleRoute(key)"
+                                        class="w-8 h-4 rounded-full relative transition-colors"
+                                        :class="route.enabled ? 'bg-brand-500' : 'bg-gray-300'">
+                                  <span class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
+                                        :class="route.enabled ? 'right-0.5' : 'left-0.5'"></span>
+                                </button>
+                              </div>
+                              <p class="text-sm font-medium text-gray-800" x-text="route.label"></p>
+                              <p class="text-[10px] text-gray-500 mt-1">
+                                <span x-text="getEnabledCount(route)"></span>/<span x-text="route.submodules.length"></span> rules
+                              </p>
+                              <p x-show="route.isSpecial" class="text-[10px] text-blue-600 mt-1">Can loop back</p>
+                            </div>
+
+                            <!-- Expanded Submodule Config -->
+                            <div x-show="expandedRoute === key" x-transition @click.stop class="border-t border-gray-200 p-3 bg-gray-50">
+                              <p class="text-[10px] text-gray-500 mb-2 font-medium uppercase">Rules</p>
+                              <div class="space-y-2">
+                                <template x-for="sub in route.submodules" :key="sub.id">
+                                  <div class="flex items-center justify-between bg-white rounded p-2 border cursor-pointer hover:bg-gray-50 transition-colors group"
+                                       :class="sub.enabled ? 'border-brand-200' : 'border-gray-200 opacity-60'"
+                                       @click="$root.openResultsPanel(sub, route)">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                      <input type="checkbox" :checked="sub.enabled" @click.stop @change="toggleSubmodule(key, sub.id)"
+                                             class="rounded border-gray-300 text-brand-600">
+                                      <div class="min-w-0">
+                                        <p class="text-xs font-medium text-gray-700 truncate" x-text="sub.name"></p>
+                                        <p class="text-[10px] text-gray-400 truncate" x-text="sub.description"></p>
+                                      </div>
+                                    </div>
+                                    <div class="flex items-center gap-1 flex-shrink-0 ml-2">
+                                      <span x-show="sub.action" class="text-[8px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded group-hover:hidden" x-text="'→ ' + sub.action"></span>
+                                      <span x-show="sub.lastResult && !sub.action" class="text-[10px] text-gray-500 group-hover:hidden" x-text="sub.lastResult"></span>
+                                      <span class="text-[10px] text-brand-500 hidden group-hover:inline">View →</span>
+                                    </div>
+                                  </div>
+                                </template>
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+
+                      <!-- Global Settings -->
+                      <div class="grid grid-cols-3 gap-4 mb-4">
+                        <div><label class="block text-xs text-gray-500 mb-1">Max Loop Iterations</label><input type="number" value="3" min="1" max="10" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></div>
+                        <div><label class="block text-xs text-gray-500 mb-1">Timeout per Loop</label><select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"><option>5 minutes</option><option>10 minutes</option><option>30 minutes</option></select></div>
+                        <div><label class="block text-xs text-gray-500 mb-1">On Max Loops</label><select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"><option>Flag for review</option><option>Proceed anyway</option><option>Fail</option></select></div>
+                      </div>
+
+                      <!-- Results Summary -->
+                      <div class="bg-gray-50 rounded p-3 border border-gray-200">
+                        <p class="text-xs text-gray-500 mb-2">Routing Decision (mock)</p>
+                        <div class="flex flex-wrap gap-4 text-sm">
+                          <span class="text-green-600"><span class="font-medium">1</span> routed to bundling</span>
+                          <span class="text-gray-500"><span class="font-medium">0</span> to review</span>
+                          <span class="text-gray-500"><span class="font-medium">0</span> loops triggered</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 9: Output Bundling (Card-Based Output Formats) -->
+                    <div x-show="i === 9" x-data="{
+                      expandedBundle: null,
+                      bundles: {
+                        formats: { enabled: true, label: 'Output Formats', icon: '📦', submodules: [
+                          { id: 'markdown', name: 'Markdown', enabled: true, cost: 'cheap', description: 'Standard .md file', lastResult: '12 KB' },
+                          { id: 'json', name: 'JSON', enabled: true, cost: 'cheap', description: 'Structured data', lastResult: '18 KB' },
+                          { id: 'html', name: 'HTML', enabled: true, cost: 'cheap', description: 'Formatted HTML', lastResult: '15 KB' },
+                          { id: 'xml-rss', name: 'XML/RSS', enabled: false, cost: 'cheap', description: 'Feed format', lastResult: null }
+                        ]},
+                        metadata: { enabled: true, label: 'Metadata', icon: '🏷️', submodules: [
+                          { id: 'citations', name: 'Source Citations', enabled: true, cost: 'cheap', description: 'Include source URLs', lastResult: '28 sources' },
+                          { id: 'tags-confidence', name: 'Tags & Confidence', enabled: true, cost: 'cheap', description: 'Tag data with scores', lastResult: '127 tags' },
+                          { id: 'seo-meta', name: 'SEO Metadata', enabled: true, cost: 'cheap', description: 'Title, description, OG', lastResult: 'included' },
+                          { id: 'schema-org', name: 'Schema.org', enabled: false, cost: 'cheap', description: 'JSON-LD structured data', lastResult: null }
+                        ]},
+                        audit: { enabled: false, label: 'Audit Trail', icon: '📋', submodules: [
+                          { id: 'processing-log', name: 'Processing Log', enabled: false, cost: 'cheap', description: 'Full processing history', lastResult: null },
+                          { id: 'source-snapshots', name: 'Source Snapshots', enabled: false, cost: 'medium', description: 'Cached source content', lastResult: null },
+                          { id: 'version-history', name: 'Version History', enabled: false, cost: 'cheap', description: 'Previous versions', lastResult: null }
+                        ]},
+                        assets: { enabled: false, label: 'Assets', icon: '🖼️', submodules: [
+                          { id: 'images', name: 'Images', enabled: false, cost: 'medium', description: 'Download & bundle images', lastResult: null },
+                          { id: 'thumbnails', name: 'Thumbnails', enabled: false, cost: 'cheap', description: 'Generate thumbnails', lastResult: null },
+                          { id: 'attachments', name: 'Attachments', enabled: false, cost: 'cheap', description: 'PDFs, docs, etc.', lastResult: null }
+                        ]}
+                      },
+                      toggleBundle(key) { this.bundles[key].enabled = !this.bundles[key].enabled; },
+                      toggleSubmodule(bundleKey, subId) {
+                        const sub = this.bundles[bundleKey].submodules.find(s => s.id === subId);
+                        if (sub) sub.enabled = !sub.enabled;
+                      },
+                      getEnabledCount(bundle) { return bundle.submodules.filter(s => s.enabled).length; },
+                      getCostClass(cost) {
+                        return { cheap: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700', expensive: 'bg-orange-100 text-orange-700' }[cost];
+                      }
+                    }">
+                      <div class="bg-violet-50 rounded p-3 border border-violet-200 mb-4">
+                        <p class="text-xs text-violet-700 font-medium mb-1">Output Bundling</p>
+                        <p class="text-xs text-gray-600">Configure output formats and what metadata to include in the final bundle. Multiple formats can be generated simultaneously.</p>
+                      </div>
+
+                      <!-- Bundle Cards Grid -->
+                      <p class="text-xs text-gray-500 mb-3">Bundle Configuration (click to configure)</p>
+                      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                        <template x-for="(bundle, key) in bundles" :key="key">
+                          <div class="rounded-lg border transition-all cursor-pointer"
+                               :class="bundle.enabled ? 'bg-white border-brand-300 shadow-sm' : 'bg-gray-50 border-gray-200 opacity-60'"
+                               @click="expandedBundle = expandedBundle === key ? null : key">
+                            <div class="p-3">
+                              <div class="flex items-center justify-between mb-2">
+                                <span class="text-lg" x-text="bundle.icon"></span>
+                                <button @click.stop="toggleBundle(key)"
+                                        class="w-8 h-4 rounded-full relative transition-colors"
+                                        :class="bundle.enabled ? 'bg-brand-500' : 'bg-gray-300'">
+                                  <span class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
+                                        :class="bundle.enabled ? 'right-0.5' : 'left-0.5'"></span>
+                                </button>
+                              </div>
+                              <p class="text-sm font-medium text-gray-800" x-text="bundle.label"></p>
+                              <p class="text-[10px] text-gray-500 mt-1">
+                                <span x-text="getEnabledCount(bundle)"></span>/<span x-text="bundle.submodules.length"></span> active
+                              </p>
+                            </div>
+
+                            <!-- Expanded Submodule Config -->
+                            <div x-show="expandedBundle === key" x-transition @click.stop class="border-t border-gray-200 p-3 bg-gray-50">
+                              <p class="text-[10px] text-gray-500 mb-2 font-medium uppercase">Options</p>
+                              <div class="space-y-2">
+                                <template x-for="sub in bundle.submodules" :key="sub.id">
+                                  <div class="flex items-center justify-between bg-white rounded p-2 border cursor-pointer hover:bg-gray-50 transition-colors group"
+                                       :class="sub.enabled ? 'border-brand-200' : 'border-gray-200 opacity-60'"
+                                       @click="$root.openResultsPanel(sub, bundle)">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                      <input type="checkbox" :checked="sub.enabled" @click.stop @change="toggleSubmodule(key, sub.id)"
+                                             class="rounded border-gray-300 text-brand-600">
+                                      <div class="min-w-0">
+                                        <p class="text-xs font-medium text-gray-700 truncate" x-text="sub.name"></p>
+                                        <p class="text-[10px] text-gray-400 truncate" x-text="sub.description"></p>
+                                      </div>
+                                    </div>
+                                    <div class="flex items-center gap-1 flex-shrink-0 ml-2">
+                                      <span :class="getCostClass(sub.cost)" class="text-[8px] px-1.5 py-0.5 rounded" x-text="sub.cost"></span>
+                                      <span x-show="sub.lastResult" class="text-[10px] text-gray-500 group-hover:hidden" x-text="sub.lastResult"></span>
+                                      <span class="text-[10px] text-brand-500 hidden group-hover:inline">View →</span>
+                                    </div>
+                                  </div>
+                                </template>
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+
+                      <!-- Global Settings -->
+                      <div class="grid grid-cols-3 gap-4 mb-4">
+                        <div><label class="block text-xs text-gray-500 mb-1">Compression</label><select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"><option>None</option><option>Gzip</option><option>ZIP archive</option></select></div>
+                        <div><label class="block text-xs text-gray-500 mb-1">File Naming</label><select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"><option>Slug-based</option><option>ID-based</option><option>Date-prefixed</option></select></div>
+                        <div><label class="block text-xs text-gray-500 mb-1">Max Bundle Size</label><input type="text" value="10 MB" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></div>
+                      </div>
+
+                      <!-- Results Summary -->
+                      <div class="bg-gray-50 rounded p-3 border border-gray-200">
+                        <p class="text-xs text-gray-500 mb-2">Bundle Preview (mock)</p>
+                        <div class="flex flex-wrap gap-4 text-sm">
+                          <span class="text-green-600"><span class="font-medium">3</span> formats</span>
+                          <span class="text-blue-600">Total: <span class="font-medium">48 KB</span></span>
+                          <span class="text-purple-600"><span class="font-medium">28</span> citations</span>
+                          <span class="text-gray-500"><span class="font-medium">127</span> tags</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 10: Distribution (Card-Based Destinations) -->
+                    <div x-show="i === 10" x-data="{
+                      expandedDest: null,
+                      destinations: {
+                        cms: { enabled: true, label: 'CMS', icon: '🌐', submodules: [
+                          { id: 'plasmic', name: 'Plasmic', enabled: true, cost: 'cheap', description: 'Push to Plasmic CMS', lastResult: 'published' },
+                          { id: 'wordpress', name: 'WordPress', enabled: false, cost: 'cheap', description: 'WP REST API', lastResult: null },
+                          { id: 'sanity', name: 'Sanity', enabled: false, cost: 'cheap', description: 'Sanity.io', lastResult: null }
+                        ]},
+                        api: { enabled: true, label: 'API/Database', icon: '🔌', submodules: [
+                          { id: 'internal-api', name: 'Internal API', enabled: true, cost: 'cheap', description: 'Push to data API', lastResult: 'updated' },
+                          { id: 'supabase', name: 'Supabase', enabled: true, cost: 'cheap', description: 'Store in Supabase', lastResult: 'saved' },
+                          { id: 'webhook', name: 'Webhook', enabled: false, cost: 'cheap', description: 'POST to webhook URL', lastResult: null }
+                        ]},
+                        storage: { enabled: false, label: 'Storage', icon: '💾', submodules: [
+                          { id: 's3', name: 'AWS S3', enabled: false, cost: 'cheap', description: 'Upload to S3 bucket', lastResult: null },
+                          { id: 'gcs', name: 'Google Cloud', enabled: false, cost: 'cheap', description: 'GCS bucket', lastResult: null },
+                          { id: 'local', name: 'Local Files', enabled: false, cost: 'cheap', description: 'Save to filesystem', lastResult: null }
+                        ]},
+                        notify: { enabled: false, label: 'Notifications', icon: '📧', submodules: [
+                          { id: 'email', name: 'Email', enabled: false, cost: 'cheap', description: 'Send email notification', lastResult: null },
+                          { id: 'slack', name: 'Slack', enabled: false, cost: 'cheap', description: 'Post to Slack channel', lastResult: null },
+                          { id: 'discord', name: 'Discord', enabled: false, cost: 'cheap', description: 'Discord webhook', lastResult: null }
+                        ]}
+                      },
+                      toggleDest(key) { this.destinations[key].enabled = !this.destinations[key].enabled; },
+                      toggleSubmodule(destKey, subId) {
+                        const sub = this.destinations[destKey].submodules.find(s => s.id === subId);
+                        if (sub) sub.enabled = !sub.enabled;
+                      },
+                      getEnabledCount(dest) { return dest.submodules.filter(s => s.enabled).length; },
+                      getCostClass(cost) {
+                        return { cheap: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700', expensive: 'bg-orange-100 text-orange-700' }[cost];
+                      },
+                      getResultClass(result) {
+                        if (result === 'published' || result === 'updated' || result === 'saved') return 'text-green-600';
+                        if (result === 'failed') return 'text-red-600';
+                        return 'text-gray-500';
+                      }
+                    }">
+                      <div class="bg-emerald-50 rounded p-3 border border-emerald-200 mb-4">
+                        <p class="text-xs text-emerald-700 font-medium mb-1">Distribution</p>
+                        <p class="text-xs text-gray-600">Configure where content is published. Multiple destinations can be active simultaneously for multi-channel distribution.</p>
+                      </div>
+
+                      <!-- Destination Cards Grid -->
+                      <p class="text-xs text-gray-500 mb-3">Destination Configuration (click to configure)</p>
+                      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                        <template x-for="(dest, key) in destinations" :key="key">
+                          <div class="rounded-lg border transition-all cursor-pointer"
+                               :class="dest.enabled ? 'bg-white border-brand-300 shadow-sm' : 'bg-gray-50 border-gray-200 opacity-60'"
+                               @click="expandedDest = expandedDest === key ? null : key">
+                            <div class="p-3">
+                              <div class="flex items-center justify-between mb-2">
+                                <span class="text-lg" x-text="dest.icon"></span>
+                                <button @click.stop="toggleDest(key)"
+                                        class="w-8 h-4 rounded-full relative transition-colors"
+                                        :class="dest.enabled ? 'bg-brand-500' : 'bg-gray-300'">
+                                  <span class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
+                                        :class="dest.enabled ? 'right-0.5' : 'left-0.5'"></span>
+                                </button>
+                              </div>
+                              <p class="text-sm font-medium text-gray-800" x-text="dest.label"></p>
+                              <p class="text-[10px] text-gray-500 mt-1">
+                                <span x-text="getEnabledCount(dest)"></span>/<span x-text="dest.submodules.length"></span> active
+                              </p>
+                            </div>
+
+                            <!-- Expanded Submodule Config -->
+                            <div x-show="expandedDest === key" x-transition @click.stop class="border-t border-gray-200 p-3 bg-gray-50">
+                              <p class="text-[10px] text-gray-500 mb-2 font-medium uppercase">Destinations</p>
+                              <div class="space-y-2">
+                                <template x-for="sub in dest.submodules" :key="sub.id">
+                                  <div class="flex items-center justify-between bg-white rounded p-2 border cursor-pointer hover:bg-gray-50 transition-colors group"
+                                       :class="sub.enabled ? 'border-brand-200' : 'border-gray-200 opacity-60'"
+                                       @click="$root.openResultsPanel(sub, dest)">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                      <input type="checkbox" :checked="sub.enabled" @click.stop @change="toggleSubmodule(key, sub.id)"
+                                             class="rounded border-gray-300 text-brand-600">
+                                      <div class="min-w-0">
+                                        <p class="text-xs font-medium text-gray-700 truncate" x-text="sub.name"></p>
+                                        <p class="text-[10px] text-gray-400 truncate" x-text="sub.description"></p>
+                                      </div>
+                                    </div>
+                                    <div class="flex items-center gap-1 flex-shrink-0 ml-2">
+                                      <span :class="getCostClass(sub.cost)" class="text-[8px] px-1.5 py-0.5 rounded" x-text="sub.cost"></span>
+                                      <span x-show="sub.lastResult" :class="getResultClass(sub.lastResult)" class="text-[10px] font-medium group-hover:hidden" x-text="sub.lastResult"></span>
+                                      <span class="text-[10px] text-brand-500 hidden group-hover:inline">View →</span>
+                                    </div>
+                                  </div>
+                                </template>
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+
+                      <!-- Global Settings -->
+                      <div class="grid grid-cols-3 gap-4 mb-4">
+                        <div><label class="block text-xs text-gray-500 mb-1">Publishing</label><select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"><option>Immediate</option><option>Scheduled</option><option>Draft (manual)</option></select></div>
+                        <div><label class="block text-xs text-gray-500 mb-1">Versioning</label><select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"><option>Create new version</option><option>Overwrite existing</option><option>Archive old</option></select></div>
+                        <div><label class="block text-xs text-gray-500 mb-1">On Failure</label><select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"><option>Retry once</option><option>Skip destination</option><option>Abort all</option></select></div>
+                      </div>
+
+                      <!-- Results Summary -->
+                      <div class="bg-gray-50 rounded p-3 border border-gray-200">
+                        <p class="text-xs text-gray-500 mb-2">Distribution Status (mock)</p>
+                        <div class="flex flex-wrap gap-4 text-sm">
+                          <span class="text-green-600"><span class="font-medium">3</span> destinations</span>
+                          <span class="text-green-600">CMS: <span class="font-medium">published</span></span>
+                          <span class="text-green-600">API: <span class="font-medium">updated</span></span>
+                          <span class="text-green-600">DB: <span class="font-medium">saved</span></span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- STEP 11: Review & Triggers (Card-Based Actions) -->
+                    <div x-show="i === 11" x-data="{
+                      expandedAction: null,
+                      reviewDecision: null,
+                      actions: {
+                        review: { enabled: true, label: 'Review Actions', icon: '✅', submodules: [
+                          { id: 'approve', name: 'Approve', enabled: true, cost: 'cheap', description: 'Mark as approved', action: 'approve', lastResult: null },
+                          { id: 'hold', name: 'Hold for Review', enabled: true, cost: 'cheap', description: 'Manual review needed', action: 'hold', lastResult: null },
+                          { id: 'reject', name: 'Reject & Revise', enabled: true, cost: 'cheap', description: 'Send back for revision', action: 'reject', lastResult: null }
+                        ]},
+                        triggers: { enabled: true, label: 'Post-approval', icon: '🚀', submodules: [
+                          { id: 'news-article', name: 'Create News Article', enabled: false, cost: 'expensive', description: 'Generate related news', lastResult: null },
+                          { id: 'competitor-analysis', name: 'Competitor Analysis', enabled: false, cost: 'expensive', description: 'Run competitor pipeline', lastResult: null },
+                          { id: 'schedule-refresh', name: 'Schedule Refresh', enabled: false, cost: 'cheap', description: 'Re-run in 30 days', lastResult: null }
+                        ]},
+                        notifications: { enabled: true, label: 'Notifications', icon: '🔔', submodules: [
+                          { id: 'notify-team', name: 'Notify Team', enabled: true, cost: 'cheap', description: 'Email team members', lastResult: 'ready' },
+                          { id: 'slack-notify', name: 'Slack Message', enabled: false, cost: 'cheap', description: 'Post to Slack', lastResult: null },
+                          { id: 'webhook-notify', name: 'Webhook', enabled: false, cost: 'cheap', description: 'Call webhook URL', lastResult: null }
+                        ]},
+                        archive: { enabled: false, label: 'Archive', icon: '📁', submodules: [
+                          { id: 'archive-sources', name: 'Archive Sources', enabled: false, cost: 'medium', description: 'Save source snapshots', lastResult: null },
+                          { id: 'export-bundle', name: 'Export Bundle', enabled: false, cost: 'cheap', description: 'Download all files', lastResult: null },
+                          { id: 'create-backup', name: 'Create Backup', enabled: false, cost: 'cheap', description: 'Backup to storage', lastResult: null }
+                        ]}
+                      },
+                      toggleAction(key) { this.actions[key].enabled = !this.actions[key].enabled; },
+                      toggleSubmodule(actionKey, subId) {
+                        const sub = this.actions[actionKey].submodules.find(s => s.id === subId);
+                        if (sub) sub.enabled = !sub.enabled;
+                      },
+                      selectReview(action) { this.reviewDecision = action; },
+                      getEnabledCount(action) { return action.submodules.filter(s => s.enabled).length; },
+                      getCostClass(cost) {
+                        return { cheap: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700', expensive: 'bg-orange-100 text-orange-700' }[cost];
+                      }
+                    }">
+                      <div class="bg-rose-50 rounded p-3 border border-rose-200 mb-4">
+                        <p class="text-xs text-rose-700 font-medium mb-1">Final Review</p>
+                        <p class="text-xs text-gray-600">Make a review decision and configure post-approval triggers. Approved content moves to production; rejected content can be revised.</p>
+                      </div>
+
+                      <!-- Quick Review Buttons -->
+                      <div class="mb-4">
+                        <p class="text-xs text-gray-500 mb-2">Quick Decision</p>
+                        <div class="flex gap-2 flex-wrap">
+                          <button @click="selectReview('approve')"
+                                  :class="reviewDecision === 'approve' ? 'bg-green-100 border-green-500 ring-2 ring-green-200' : 'bg-green-50 border-green-300'"
+                                  class="border text-green-700 px-4 py-2 rounded-lg text-sm hover:bg-green-100 transition-all">
+                            ✓ Approve
+                          </button>
+                          <button @click="selectReview('hold')"
+                                  :class="reviewDecision === 'hold' ? 'bg-yellow-100 border-yellow-500 ring-2 ring-yellow-200' : 'bg-yellow-50 border-yellow-300'"
+                                  class="border text-yellow-700 px-4 py-2 rounded-lg text-sm hover:bg-yellow-100 transition-all">
+                            ⏸ Hold for Review
+                          </button>
+                          <button @click="selectReview('reject')"
+                                  :class="reviewDecision === 'reject' ? 'bg-red-100 border-red-500 ring-2 ring-red-200' : 'bg-red-50 border-red-300'"
+                                  class="border text-red-700 px-4 py-2 rounded-lg text-sm hover:bg-red-100 transition-all">
+                            ✗ Reject & Revise
+                          </button>
+                        </div>
+                      </div>
+
+                      <!-- Feedback -->
+                      <div class="mb-4">
+                        <label class="block text-xs text-gray-500 mb-1">Feedback / Notes</label>
+                        <textarea rows="2" placeholder="Optional notes for the team..." class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></textarea>
+                      </div>
+
+                      <!-- Action Cards Grid -->
+                      <p class="text-xs text-gray-500 mb-3">Trigger Configuration (click to configure)</p>
+                      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                        <template x-for="(action, key) in actions" :key="key">
+                          <div class="rounded-lg border transition-all cursor-pointer"
+                               :class="action.enabled ? 'bg-white border-brand-300 shadow-sm' : 'bg-gray-50 border-gray-200 opacity-60'"
+                               @click="expandedAction = expandedAction === key ? null : key">
+                            <div class="p-3">
+                              <div class="flex items-center justify-between mb-2">
+                                <span class="text-lg" x-text="action.icon"></span>
+                                <button @click.stop="toggleAction(key)"
+                                        class="w-8 h-4 rounded-full relative transition-colors"
+                                        :class="action.enabled ? 'bg-brand-500' : 'bg-gray-300'">
+                                  <span class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
+                                        :class="action.enabled ? 'right-0.5' : 'left-0.5'"></span>
+                                </button>
+                              </div>
+                              <p class="text-sm font-medium text-gray-800" x-text="action.label"></p>
+                              <p class="text-[10px] text-gray-500 mt-1">
+                                <span x-text="getEnabledCount(action)"></span>/<span x-text="action.submodules.length"></span> active
+                              </p>
+                            </div>
+
+                            <!-- Expanded Submodule Config -->
+                            <div x-show="expandedAction === key" x-transition @click.stop class="border-t border-gray-200 p-3 bg-gray-50">
+                              <p class="text-[10px] text-gray-500 mb-2 font-medium uppercase">Options</p>
+                              <div class="space-y-2">
+                                <template x-for="sub in action.submodules" :key="sub.id">
+                                  <div class="flex items-center justify-between bg-white rounded p-2 border cursor-pointer hover:bg-gray-50 transition-colors group"
+                                       :class="sub.enabled ? 'border-brand-200' : 'border-gray-200 opacity-60'"
+                                       @click="$root.openResultsPanel(sub, action)">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                      <input type="checkbox" :checked="sub.enabled" @click.stop @change="toggleSubmodule(key, sub.id)"
+                                             class="rounded border-gray-300 text-brand-600">
+                                      <div class="min-w-0">
+                                        <p class="text-xs font-medium text-gray-700 truncate" x-text="sub.name"></p>
+                                        <p class="text-[10px] text-gray-400 truncate" x-text="sub.description"></p>
+                                      </div>
+                                    </div>
+                                    <div class="flex items-center gap-1 flex-shrink-0 ml-2">
+                                      <span :class="getCostClass(sub.cost)" class="text-[8px] px-1.5 py-0.5 rounded" x-text="sub.cost"></span>
+                                      <span x-show="sub.lastResult" class="text-[10px] text-gray-500 group-hover:hidden" x-text="sub.lastResult"></span>
+                                      <span class="text-[10px] text-brand-500 hidden group-hover:inline">View →</span>
+                                    </div>
+                                  </div>
+                                </template>
+                              </div>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+
+                      <!-- Status Summary -->
+                      <div class="bg-gray-50 rounded p-3 border border-gray-200">
+                        <p class="text-xs text-gray-500 mb-2">Review Status</p>
+                        <div class="flex flex-wrap gap-4 text-sm">
+                          <span :class="reviewDecision === 'approve' ? 'text-green-600' : reviewDecision === 'hold' ? 'text-yellow-600' : reviewDecision === 'reject' ? 'text-red-600' : 'text-gray-400'">
+                            Decision: <span class="font-medium" x-text="reviewDecision ? reviewDecision.charAt(0).toUpperCase() + reviewDecision.slice(1) : 'Pending'"></span>
+                          </span>
+                          <span class="text-blue-600"><span class="font-medium">2</span> triggers enabled</span>
+                          <span class="text-gray-500">Ready to finalize</span>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  <!-- Step Action Bar (bottom) -->
+                  <div class="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
+                    <div class="flex items-center gap-2">
+                      <span x-show="!isStepUnlocked(i) && stepStates[i]?.status !== 'completed' && stepStates[i]?.status !== 'skipped'"
+                            class="text-xs text-gray-400 italic">Complete previous step first</span>
+                      <button x-show="stepStates[i]?.status === 'completed' || stepStates[i]?.status === 'skipped'"
+                              @click="reopenStep(i)"
+                              class="text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded text-xs border border-gray-300 hover:border-gray-400">
+                        Reopen
+                      </button>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <button x-show="stepStates[i]?.status !== 'skipped' && stepStates[i]?.status !== 'completed'"
+                              @click="skipStep(i)"
+                              class="text-gray-500 hover:text-yellow-600 px-3 py-1.5 rounded text-xs border border-gray-300 hover:border-yellow-400">
+                        Skip this step
+                      </button>
+                      <button x-show="stepStates[i]?.status !== 'completed' && stepStates[i]?.status !== 'skipped' && isStepUnlocked(i)"
+                              @click="markStepCompleted(i)"
+                              class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded text-xs font-medium shadow-sm">
+                        Approve & Continue
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- PROJECT LIST -->
+        <div x-show="!selectedProject && !showPipelineAccordion">
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h2 class="text-lg font-semibold">Projects</h2>
+              <p class="text-sm text-gray-500">Create projects with input data and run pipelines</p>
+            </div>
+            <div class="flex items-center gap-3">
+              <input x-model="projectSearchFilter" @input.debounce.200ms="filterProjects()" type="search" placeholder="Filter..."
+                class="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 w-40 focus:outline-none focus:border-brand-500">
+              <button @click="selectedProject = null; showPipelineAccordion = true; step0Mode = 'new'; step0NewProjectName = ''; step0SelectedProjectId = ''; expandedStep = 0; stepStates = {}; for(let i=0;i<12;i++)stepStates[i]={status:'pending',resultSummary:''}; stepStates[0]={status:'active',resultSummary:''}"
+                class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium">+ New Project</button>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            <div class="bg-white rounded-lg p-3 border border-gray-200 shadow-sm"><p class="text-2xl font-bold text-gray-900" x-text="projects.length"></p><p class="text-xs text-gray-500">Total</p></div>
+            <div class="bg-white rounded-lg p-3 border border-gray-200 shadow-sm"><p class="text-2xl font-bold text-green-600" x-text="projects.filter(p => p.status === 'completed').length"></p><p class="text-xs text-gray-500">Completed</p></div>
+            <div class="bg-white rounded-lg p-3 border border-gray-200 shadow-sm"><p class="text-2xl font-bold text-blue-600" x-text="projects.filter(p => p.status === 'running').length"></p><p class="text-xs text-gray-500">Running</p></div>
+            <div class="bg-white rounded-lg p-3 border border-gray-200 shadow-sm"><p class="text-2xl font-bold text-red-600" x-text="projects.filter(p => p.status === 'failed').length"></p><p class="text-xs text-gray-500">Failed</p></div>
+          </div>
+          <div class="space-y-2">
+            <template x-if="filteredProjects.length === 0">
+              <div class="text-center py-12 text-gray-500">
+                <p x-show="useMockData">Switch to Live mode to see real projects</p>
+                <p x-show="!useMockData">No projects yet. Click "+ New Project" to get started.</p>
+              </div>
+            </template>
+            <template x-for="project in filteredProjects" :key="project.id">
+              <div class="bg-white rounded-lg p-4 border border-gray-200 shadow-sm hover:border-brand-300 transition-all">
+                <div class="flex items-center justify-between">
+                  <div class="min-w-0 flex-1 cursor-pointer" @click="selectProject(project)">
+                    <h3 class="font-medium text-gray-900" x-text="project.name"></h3>
+                    <div class="flex items-center gap-2 mt-1">
+                      <span x-show="project.label" class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded" x-text="project.label"></span>
+                      <span class="text-xs text-gray-500" x-text="(project.input_count || 0) + ' items'"></span>
+                      <span class="text-xs text-gray-400" x-text="formatDate(project.created_at)"></span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2 flex-shrink-0 ml-4">
+                    <span :class="stepStatusBadge(project.status)" class="text-xs px-2 py-0.5 rounded-full" x-text="project.status"></span>
+                    <button x-show="project.input_count > 0 && project.status !== 'running'" @click.stop="startProject(project.id)"
+                      class="px-3 py-1 bg-brand-600 text-white text-xs rounded hover:bg-brand-700">Run</button>
+                    <button @click.stop="deleteProject(project.id)" class="text-gray-400 hover:text-red-600 text-sm">×</button>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal removed - project creation now in Step 0 -->
+
+      <!-- ==================== PIPELINE MONITOR TAB ==================== -->
+      <div x-show="activeTab === 'monitor'">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold">Pipeline Monitor</h2>
+          <button @click="loadRuns()" x-show="!useMockData" class="text-sm text-brand-600 hover:text-brand-800">↻ Refresh</button>
+        </div>
+        <div class="space-y-3">
+          <template x-if="runs.length === 0">
+            <p class="text-gray-500 text-sm py-8 text-center">No pipeline runs yet.</p>
+          </template>
+          <template x-for="run in runs" :key="run.id">
+            <div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+              <div class="p-4 cursor-pointer hover:bg-gray-50" @click="loadRunDetails(run)">
+                <div class="flex items-center justify-between mb-2">
+                  <div class="flex items-center gap-3">
+                    <span class="font-medium text-gray-900" x-text="run.project_name"></span>
+                    <span class="text-xs text-gray-500 font-mono" x-text="'#' + (run.id || '').slice(0, 8)"></span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span :class="stepStatusBadge(run.status)" class="text-xs px-2 py-0.5 rounded-full" x-text="run.status"></span>
+                    <span class="text-gray-400" x-text="run._expanded ? '▼' : '▶'"></span>
+                  </div>
+                </div>
+                <!-- Mock stages (demo mode) -->
+                <template x-if="useMockData && run.stages?.length > 0">
+                  <div class="grid grid-cols-12 gap-0.5 mb-2">
+                    <template x-for="stage in run.stages" :key="stage.stage_index">
+                      <div class="group relative">
+                        <div :class="stageBarClass(stage.status)" class="h-5 rounded-sm flex items-center justify-center">
+                          <span class="text-[9px] font-bold text-white/80" x-text="stage.stage_index"></span>
+                        </div>
+                        <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10">
+                          <div class="bg-gray-900 text-xs text-white px-2 py-1 rounded whitespace-nowrap shadow-lg" x-text="stage.stage_name"></div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <!-- Live progress bar -->
+                <template x-if="!useMockData">
+                  <div class="mb-2">
+                    <div class="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div class="h-full bg-brand-600 transition-all" :style="'width:' + (run.progress || 0) + '%'"></div>
+                    </div>
+                  </div>
+                </template>
+                <div class="flex justify-between text-xs text-gray-500">
+                  <span x-show="useMockData" x-text="(run.stages || []).filter(s => s.status === 'completed').length + '/' + (run.stages || []).length + ' steps'"></span>
+                  <span x-show="!useMockData" x-text="(run.entities_completed || 0) + '/' + (run.entities_total || 0) + ' entities • ' + (run.progress || 0) + '%'"></span>
+                  <span x-text="run.duration || formatDate(run.started_at)"></span>
+                </div>
+              </div>
+              <!-- Expanded: Entity details -->
+              <div x-show="run._expanded && !useMockData" class="border-t border-gray-200 bg-gray-50 px-4 py-3">
+                <p x-show="!run.runEntities" class="text-sm text-gray-500">Loading entities...</p>
+                <div x-show="run.runEntities" class="space-y-2">
+                  <template x-for="re in (run.runEntities || [])" :key="re.id">
+                    <div class="bg-white rounded border border-gray-200 overflow-hidden">
+                      <div class="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-gray-50" @click="loadEntityStages(run, re)">
+                        <div class="flex items-center gap-2">
+                          <span class="text-gray-400" x-text="re._stagesExpanded ? '▼' : '▶'"></span>
+                          <span class="font-medium text-sm" x-text="re.entity_name || 'Entity'"></span>
+                          <span class="text-xs text-gray-400" x-text="re.entity_type"></span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                          <span class="text-xs text-gray-500" x-text="(re.stages_completed || 0) + '/' + (re.stages_total || 0) + ' stages'"></span>
+                          <span :class="stepStatusBadge(re.status)" class="text-xs px-2 py-0.5 rounded-full" x-text="re.status"></span>
+                        </div>
+                      </div>
+                      <!-- Stage details -->
+                      <div x-show="re._stagesExpanded" class="border-t border-gray-100 bg-gray-50 px-3 py-2">
+                        <template x-for="stage in (re.stages || [])" :key="stage.id">
+                          <div class="mb-3 last:mb-0">
+                            <div class="flex items-center justify-between mb-1">
+                              <div class="flex items-center gap-2">
+                                <span class="text-xs font-medium" x-text="'Step ' + stage.stage_index + ': ' + stage.stage_name"></span>
+                                <span :class="stepStatusBadge(stage.status)" class="text-[10px] px-1.5 py-0.5 rounded" x-text="stage.status"></span>
+                              </div>
+                              <div class="flex items-center gap-2 text-[10px] text-gray-500">
+                                <span x-show="stage.duration_ms" x-text="stage.duration_ms + 'ms'"></span>
+                                <span x-show="stage.worker_id" x-text="stage.worker_id"></span>
+                              </div>
+                            </div>
+                            <!-- Output data -->
+                            <div x-show="stage.output_data" class="bg-white rounded border border-gray-200 p-2 mt-1">
+                              <p class="text-[10px] font-medium text-gray-500 mb-1">Output:</p>
+                              <pre class="text-[10px] text-gray-700 overflow-x-auto whitespace-pre-wrap" x-text="JSON.stringify(stage.output_data, null, 2)"></pre>
+                            </div>
+                            <!-- Error -->
+                            <div x-show="stage.error" class="bg-red-50 rounded border border-red-200 p-2 mt-1">
+                              <p class="text-[10px] font-medium text-red-600">Error:</p>
+                              <pre class="text-[10px] text-red-700" x-text="stage.error"></pre>
+                            </div>
+                          </div>
+                        </template>
+                        <p x-show="!re.stages || re.stages.length === 0" class="text-xs text-gray-500">No stages yet</p>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ==================== CONTENT LIBRARY TAB ==================== -->
+      <div x-show="activeTab === 'library'">
+        <h2 class="text-lg font-semibold mb-1">Content Library</h2>
+        <p class="text-sm text-gray-500 mb-6">Aggregated view of all content produced across projects</p>
+        <!-- Aggregate Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <div class="bg-white rounded-lg p-4 border border-gray-200 shadow-sm"><p class="text-3xl font-bold text-gray-900" x-text="contentStats.total.toLocaleString()"></p><p class="text-xs text-gray-500">Total Items</p></div>
+          <div class="bg-white rounded-lg p-4 border border-gray-200 shadow-sm"><p class="text-3xl font-bold text-green-600" x-text="contentStats.active.toLocaleString()"></p><p class="text-xs text-gray-500">Active</p></div>
+          <div class="bg-white rounded-lg p-4 border border-gray-200 shadow-sm"><p class="text-3xl font-bold text-purple-600" x-text="contentStats.generated.toLocaleString()"></p><p class="text-xs text-gray-500">Generated</p></div>
+          <div class="bg-white rounded-lg p-4 border border-gray-200 shadow-sm"><p class="text-3xl font-bold text-orange-600" x-text="contentStats.filtered.toLocaleString()"></p><p class="text-xs text-gray-500">Filtered Out</p></div>
+        </div>
+        <!-- Breakdown by type -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div class="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+            <h3 class="text-sm font-medium text-gray-700 mb-3">By Content Type</h3>
+            <template x-for="t in contentStats.byType" :key="t.type">
+              <div class="flex items-center justify-between py-1.5">
+                <span class="text-sm text-gray-700" x-text="t.type"></span>
+                <div class="flex items-center gap-2">
+                  <div class="w-24 h-2 bg-gray-200 rounded-full overflow-hidden"><div class="h-full bg-brand-500 rounded-full" :style="'width:' + (t.count / contentStats.total * 100) + '%'"></div></div>
+                  <span class="text-xs text-gray-500 w-12 text-right" x-text="t.count.toLocaleString()"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+          <div class="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+            <h3 class="text-sm font-medium text-gray-700 mb-3">By Status</h3>
+            <template x-for="s in contentStats.byStatus" :key="s.status">
+              <div class="flex items-center justify-between py-1.5">
+                <span class="text-sm text-gray-700" x-text="s.status"></span>
+                <div class="flex items-center gap-2">
+                  <div class="w-24 h-2 bg-gray-200 rounded-full overflow-hidden"><div class="h-full rounded-full" :class="s.color" :style="'width:' + (s.count / contentStats.total * 100) + '%'"></div></div>
+                  <span class="text-xs text-gray-500 w-12 text-right" x-text="s.count.toLocaleString()"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div class="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+          <h3 class="text-sm font-medium text-gray-700 mb-3">Recent Activity</h3>
+          <div class="space-y-2">
+            <template x-for="item in recentContent" :key="item.id">
+              <div class="flex items-center justify-between py-1.5 border-b border-gray-100 last:border-0">
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm text-gray-900 truncate" x-text="item.title"></p>
+                  <span class="text-xs text-gray-500" x-text="item.content_type"></span>
+                </div>
+                <div class="flex items-center gap-2 ml-3">
+                  <span x-show="item.quality_score" class="text-xs text-gray-500" x-text="Math.round(item.quality_score * 100) + '%'"></span>
+                  <span :class="stepStatusBadge(item.status)" class="text-xs px-2 py-0.5 rounded-full" x-text="item.status"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== TEMPLATES TAB ==================== -->
+      <div x-show="activeTab === 'templates'">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h2 class="text-lg font-semibold">Pipeline Templates</h2>
+            <p class="text-sm text-gray-500">Saved step configurations that can be loaded into projects</p>
+          </div>
+          <button @click="editingTemplate = { name: '', description: '', stages: [{ name: '', operation: '' }] }" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium">New Template</button>
+        </div>
+        <div x-show="!editingTemplate" class="space-y-3">
+          <template x-for="tpl in templates" :key="tpl.id">
+            <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+              <div class="flex items-center justify-between mb-2">
+                <div><span class="font-medium text-gray-900" x-text="tpl.name"></span><span class="text-xs text-gray-500 ml-2" x-text="tpl.stages.length + ' steps'"></span></div>
+                <div class="flex items-center gap-2">
+                  <span x-show="tpl.is_active" class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full border border-green-200">Active</span>
+                  <span class="text-xs text-gray-500" x-text="'v' + tpl.version"></span>
+                </div>
+              </div>
+              <p x-show="tpl.description" class="text-xs text-gray-500 mb-3" x-text="tpl.description"></p>
+              <div class="flex items-center gap-1 overflow-x-auto pb-1">
+                <template x-for="(stage, si) in tpl.stages" :key="si">
+                  <div class="flex items-center gap-1 flex-shrink-0">
+                    <div class="bg-gray-100 rounded px-2 py-1 border border-gray-200"><p class="text-[10px] text-gray-700" x-text="stage.name"></p></div>
+                    <span x-show="si < tpl.stages.length - 1" class="text-gray-400 text-xs">&rarr;</span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+        <!-- Template Editor -->
+        <div x-show="editingTemplate" class="bg-white rounded-lg p-6 border border-gray-200 shadow-sm">
+          <h3 class="text-lg font-semibold text-gray-900 mb-4">Create Template</h3>
+          <form @submit.prevent="saveTemplate()">
+            <div class="space-y-3 mb-4">
+              <div><label class="block text-xs text-gray-600 mb-1">Name</label><input x-model="editingTemplate.name" type="text" required placeholder="Template name..." class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></div>
+              <div><label class="block text-xs text-gray-600 mb-1">Description</label><input x-model="editingTemplate.description" type="text" placeholder="What is this for?" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></div>
+            </div>
+            <p class="text-xs text-gray-600 mb-2">Steps:</p>
+            <div class="space-y-2 mb-3">
+              <template x-for="(stage, si) in editingTemplate.stages" :key="si">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-gray-600 w-4" x-text="si+1"></span>
+                  <input x-model="stage.name" type="text" placeholder="Step name" class="flex-1 bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-900 text-xs">
+                  <input x-model="stage.operation" type="text" placeholder="operation" class="flex-1 bg-white border border-gray-300 rounded px-2 py-1.5 text-gray-900 text-xs font-mono">
+                  <button type="button" @click="editingTemplate.stages.splice(si, 1)" x-show="editingTemplate.stages.length > 1" class="text-red-500 text-xs px-1">x</button>
+                </div>
+              </template>
+            </div>
+            <button type="button" @click="editingTemplate.stages.push({ name: '', operation: '' })" class="text-brand-400 text-xs mb-4 block">+ Add Step</button>
+            <div class="flex justify-end gap-3">
+              <button type="button" @click="editingTemplate = null" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-900">Cancel</button>
+              <button type="submit" class="bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-medium">Save</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- Toast -->
+    <div x-show="toast" x-transition class="fixed bottom-6 right-6 bg-white border border-gray-200 rounded-lg px-4 py-3 shadow-xl z-50">
+      <p class="text-sm" :class="toast?.type === 'error' ? 'text-red-600' : 'text-green-600'" x-text="toast?.message"></p>
+    </div>
+  </div>
+
+  <script>
+    const PIPELINE_STEPS = [
+      { name: 'Project Setup', short: 'Setup', operation: 'project-setup', description: 'Name your project, add tags, and choose a project type' },
+      { name: 'Input Specification', short: 'Input', operation: 'input-spec', description: 'Define raw material, output intent, and context (geography, language, freshness)' },
+      { name: 'Discovery & Enrichment', short: 'Discover', operation: 'discovery-enrich', description: 'Expand or enrich inputs — conditional on what Step 1 provides' },
+      { name: 'Source Validation', short: 'Validate', operation: 'source-validation', description: 'Filter sources by trust, authority, and policy compliance' },
+      { name: 'Content Extraction', short: 'Extract', operation: 'content-extract', description: 'Download and parse content from validated URLs' },
+      { name: 'Filtering & Adaptive Crawl', short: 'Filter', operation: 'content-filter', description: 'Deduplicate, quality-filter, and adaptively expand if needed' },
+      { name: 'Analysis & Generation', short: 'Generate', operation: 'profile-generate', description: 'Classify, tag, and generate output content via AI' },
+      { name: 'Validation & QA', short: 'QA', operation: 'qa-validation', description: 'Fact-check, detect hallucinations, score quality' },
+      { name: 'Routing & Flow', short: 'Route', operation: 'flow-router', description: 'Conditional logic: approve, retry, loop, or discard' },
+      { name: 'Output Bundling', short: 'Bundle', operation: 'output-package', description: 'Package into markdown, JSON, HTML, or custom formats' },
+      { name: 'Distribution', short: 'Distribute', operation: 'distributor', description: 'Publish to CMS, API, file storage, or webhooks' },
+      { name: 'Review & Triggers', short: 'Review', operation: 'review-trigger', description: 'Final approval, feedback, and downstream triggers' }
+    ];
+
+    const MOCK_PROJECTS = [
+      { id: 'p-bet-001', name: 'Betsson Group Research', label: 'company-profile', description: 'Generate a comprehensive company profile for Betsson Group.', source: 'https://betsson.com', status: 'completed', created_at: '2025-01-10T09:00:00Z' },
+      { id: 'p-leo-002', name: 'LeoVegas Company Profile', label: 'company-profile', description: 'Build a detailed profile for LeoVegas.', source: 'https://leovegas.com', status: 'running', created_at: '2025-01-15T14:30:00Z' },
+      { id: 'p-evo-003', name: 'Evolution Gaming Profile', label: 'company-profile', description: 'Profile of Evolution Gaming covering live casino.', source: 'https://evolution.com', status: 'completed', created_at: '2025-01-08T11:00:00Z' },
+      { id: 'p-news-004', name: 'UK Gambling Commission Updates', label: 'news', description: 'Track UKGC regulatory announcements.', source: 'https://gamblingcommission.gov.uk', status: 'completed', created_at: '2025-01-12T08:15:00Z' },
+      { id: 'p-pod-005', name: 'iGaming Podcast Ep. 47', label: 'podcast', description: 'Transcribe and generate show notes for Ep. 47.', source: 'https://example.com/ep47.mp3', status: 'failed', created_at: '2025-01-18T16:00:00Z' },
+      { id: 'p-comp-006', name: 'Nordic Market Landscape', label: 'research', description: 'Competitive analysis of Nordic iGaming players.', source: '', status: 'created', created_at: '2025-01-20T10:00:00Z' },
+    ];
+
+    function makeMockStages(completedCount, runningIndex = -1) {
+      return PIPELINE_STEPS.map((step, i) => {
+        let status = 'pending';
+        if (i < completedCount) status = 'completed';
+        else if (i === runningIndex) status = 'running';
+        return { stage_index: i, stage_name: step.name, status };
+      });
+    }
+
+    const MOCK_RUNS = [
+      { id: 'r-001', project_id: 'p-bet-001', project_name: 'Betsson Group Research', status: 'completed', started_at: '2025-01-10T09:05:00Z', duration: '4m 32s', stages: makeMockStages(12), _expanded: false },
+      { id: 'r-002', project_id: 'p-leo-002', project_name: 'LeoVegas Company Profile', status: 'running', started_at: '2025-01-15T14:35:00Z', duration: null, stages: makeMockStages(5, 5), _expanded: false },
+      { id: 'r-003', project_id: 'p-evo-003', project_name: 'Evolution Gaming Profile', status: 'completed', started_at: '2025-01-08T11:10:00Z', duration: '5m 11s', stages: makeMockStages(12), _expanded: false },
+      { id: 'r-004', project_id: 'p-news-004', project_name: 'UK Gambling Commission Updates', status: 'completed', started_at: '2025-01-12T08:20:00Z', duration: '2m 45s', stages: makeMockStages(12), _expanded: false },
+      { id: 'r-005', project_id: 'p-pod-005', project_name: 'iGaming Podcast Ep. 47', status: 'failed', started_at: '2025-01-18T16:05:00Z', duration: '1m 12s', stages: makeMockStages(4, -1), _expanded: false },
+    ];
+
+    const MOCK_TEMPLATES = [
+      { id: 't-001', name: 'Full Company Profile', description: 'All 11 steps for comprehensive company profiles.', version: 2, is_active: true, stages: PIPELINE_STEPS.map(s => ({ name: s.short, operation: s.operation })) },
+      { id: 't-002', name: 'News Digest', description: '8-step pipeline for news article synthesis.', version: 1, is_active: true, stages: [{ name: 'Scope', operation: 'input-scope' }, { name: 'Discover', operation: 'url-discovery' }, { name: 'Validate', operation: 'source-validation' }, { name: 'Extract', operation: 'content-extract' }, { name: 'Filter', operation: 'content-filter' }, { name: 'Generate', operation: 'article-generate' }, { name: 'QA', operation: 'qa-validation' }, { name: 'Bundle', operation: 'output-package' }] },
+      { id: 't-003', name: 'Podcast Processing', description: 'Transcribe and generate show notes.', version: 1, is_active: true, stages: [{ name: 'Setup', operation: 'input-scope' }, { name: 'Transcribe', operation: 'audio-transcribe' }, { name: 'Extract', operation: 'content-extract' }, { name: 'Topics', operation: 'topic-extract' }, { name: 'Notes', operation: 'shownotes-generate' }, { name: 'QA', operation: 'qa-validation' }, { name: 'Bundle', operation: 'output-package' }] },
+    ];
+
+    function app() {
+      return {
+        useMockData: true,
+        toast: null,
+        activeTab: 'projects',
+        tabs: [
+          { id: 'projects', label: 'Projects' },
+          { id: 'monitor', label: 'Pipeline Monitor' },
+          { id: 'library', label: 'Content Library' },
+          { id: 'templates', label: 'Templates' }
+        ],
+
+        // Templates (pipeline configurations)
+        pipelineTemplates: [],
+        selectedTemplateId: null,
+
+        // Step 0 state (inline project selection)
+        step0Mode: 'new', // 'new' or 'existing'
+        step0NewProjectName: '',
+        step0SelectedProjectId: '',
+        showPipelineAccordion: false, // Show accordion even without selectedProject
+
+        // Legacy modal (can be removed)
+        showNewProjectModal: false,
+        newProjectForm: {
+          name: '',
+          template_id: '',
+          input_text: ''
+        },
+        pipelineSteps: PIPELINE_STEPS,
+
+        // Projects
+        projects: [],
+        filteredProjects: [],
+        selectedProject: null,
+        projectSearchFilter: '',
+
+        // Accordion state
+        expandedStep: null,
+        stepStates: {},
+
+        // Active run tracking (for approval flow)
+        currentRunId: null,
+        currentRunEntityId: null,
+
+        // Runs
+        runs: [],
+
+        // Content stats (aggregated)
+        contentStats: { total: 0, active: 0, generated: 0, filtered: 0, byType: [], byStatus: [] },
+        recentContent: [],
+
+        // Templates
+        templates: [],
+        editingTemplate: null,
+
+        // Results Panel (slide-in)
+        resultsPanelOpen: false,
+        resultsPanel: null,
+
+        // Open results panel with submodule data (mock mode)
+        openResultsPanel(submodule, category) {
+          this.resultsPanel = {
+            icon: category?.icon || '📊',
+            title: submodule.name,
+            subtitle: `${category?.label || 'Submodule'} • ${submodule.cost} cost`,
+            status: submodule.lastResult ? 'success' : 'pending',
+            timestamp: submodule.lastResult ? 'Last run: 2 min ago' : '',
+            stats: submodule.lastResult ? {
+              result: submodule.lastResult,
+              duration: '1.2s',
+              cost: submodule.cost === 'cheap' ? '$0.001' : submodule.cost === 'medium' ? '$0.01' : '$0.10'
+            } : null,
+            items: submodule.lastResult ? this.getMockResultItems(submodule) : [],
+            log: null
+          };
+          this.resultsPanelOpen = true;
+        },
+
+        // Open results panel with real stage output (live mode)
+        async openStageResultsPanel(stageIndex) {
+          if (!this.currentRunId) {
+            this.showToast('No active run', 'error');
+            return;
+          }
+
+          try {
+            // Fetch stage data from API
+            const res = await fetch(`/api/runs/${this.currentRunId}/stages?stage_index=${stageIndex}`);
+            if (!res.ok) throw new Error('Failed to fetch stage data');
+            const stages = await res.json();
+
+            if (stages.length === 0) {
+              this.showToast('No data for this stage yet', 'error');
+              return;
+            }
+
+            const stage = stages[0]; // Get first entity's stage for now
+            const step = this.pipelineSteps[stageIndex];
+            const output = stage.output_data || {};
+
+            this.resultsPanel = {
+              icon: '📊',
+              title: `Step ${stageIndex}: ${step?.name || stage.stage_name}`,
+              subtitle: `${stage.entity_name || 'Entity'} • ${stage.status}`,
+              status: stage.status === 'completed' || stage.status === 'approved' ? 'success' :
+                      stage.status === 'failed' ? 'error' :
+                      stage.status === 'awaiting_approval' ? 'warning' : 'pending',
+              timestamp: stage.completed_at ? `Completed: ${this.formatDate(stage.completed_at)}` :
+                         stage.started_at ? `Started: ${this.formatDate(stage.started_at)}` : '',
+              stats: {
+                total: output.total || output.urls_found || output.pages_scraped || '-',
+                duration: stage.duration_ms ? `${stage.duration_ms}ms` : '-',
+                status: stage.status
+              },
+              items: this.extractResultItems(output),
+              log: output.log || (stage.error ? JSON.stringify(stage.error, null, 2) : null)
+            };
+            this.resultsPanelOpen = true;
+          } catch (e) {
+            console.error('Failed to fetch stage results:', e);
+            this.showToast(e.message, 'error');
+          }
+        },
+
+        // Extract displayable items from stage output_data
+        extractResultItems(output) {
+          // Handle submodule_results structure (from bullmq_architecture_doc)
+          if (output.submodule_results) {
+            const items = [];
+            for (const [submodule, data] of Object.entries(output.submodule_results)) {
+              if (data.items) {
+                items.push(...data.items.map(item => ({
+                  ...item,
+                  title: item.title || item.url || item.name,
+                  description: `${submodule}: ${item.description || item.status || ''}`
+                })));
+              }
+            }
+            return items.slice(0, 50); // Limit for UI
+          }
+
+          // Handle discovered_urls array
+          if (output.urls && Array.isArray(output.urls)) {
+            return output.urls.slice(0, 50).map(url => ({
+              url: typeof url === 'string' ? url : url.url,
+              title: typeof url === 'object' ? url.title : null,
+              status: 'success'
+            }));
+          }
+
+          // Handle scraped_pages array
+          if (output.pages && Array.isArray(output.pages)) {
+            return output.pages.slice(0, 50).map(page => ({
+              title: page.title || page.url,
+              description: `${page.word_count || 0} words`,
+              url: page.url,
+              status: 'success'
+            }));
+          }
+
+          // Handle generic items array
+          if (output.items && Array.isArray(output.items)) {
+            return output.items.slice(0, 50);
+          }
+
+          // Fallback: show raw keys as stats
+          return [];
+        },
+
+        // Generate mock result items based on submodule type
+        getMockResultItems(submodule) {
+          const id = submodule.id || submodule.name.toLowerCase().replace(/\s+/g, '-');
+
+          // Discovery submodules
+          if (id.includes('sitemap') || id.includes('navigation') || id.includes('seed')) {
+            return [
+              { url: 'https://example.com/about', status: 'success', title: 'About Page' },
+              { url: 'https://example.com/products', status: 'success', title: 'Products' },
+              { url: 'https://example.com/team', status: 'success', title: 'Team' },
+              { url: 'https://example.com/careers', status: 'success', title: 'Careers' },
+            ];
+          }
+
+          // Validation submodules
+          if (id.includes('domain') || id.includes('trust') || id.includes('authority')) {
+            return [
+              { title: 'example.com', description: 'DA: 45, Trust: High', status: 'pass' },
+              { title: 'blog.example.com', description: 'DA: 32, Trust: Medium', status: 'pass' },
+              { title: 'news.spam.com', description: 'DA: 5, Trust: Low', status: 'fail' },
+            ];
+          }
+
+          // Extraction submodules
+          if (id.includes('cheerio') || id.includes('playwright') || id.includes('text')) {
+            return [
+              { title: 'About Page', description: '1,247 words extracted', status: 'success' },
+              { title: 'Products Page', description: '892 words extracted', status: 'success' },
+              { title: 'Team Page', description: '456 words extracted', status: 'success' },
+            ];
+          }
+
+          // Generation submodules
+          if (id.includes('gpt') || id.includes('claude') || id.includes('profile')) {
+            return [
+              { title: 'Company Profile v1', description: 'Generated from 28 sources', status: 'success' },
+            ];
+          }
+
+          // QA submodules
+          if (id.includes('fact') || id.includes('hallucination') || id.includes('structure')) {
+            return [
+              { title: 'CEO Name', description: 'Verified against LinkedIn', status: 'pass' },
+              { title: 'Founded Year', description: 'Confirmed via Crunchbase', status: 'pass' },
+              { title: 'Revenue Figure', description: 'No source found', status: 'fail' },
+            ];
+          }
+
+          // Default
+          return [
+            { title: 'Result 1', description: 'Processed successfully', status: 'success' },
+            { title: 'Result 2', description: 'Processed successfully', status: 'success' },
+          ];
+        },
+
+        async init() {
+          if (this.useMockData) {
+            this.projects = [...MOCK_PROJECTS];
+            this.filteredProjects = [...MOCK_PROJECTS];
+            this.runs = MOCK_RUNS.map(r => ({ ...r }));
+            this.templates = [...MOCK_TEMPLATES];
+            this.entities = [];
+            this.filteredEntities = [];
+            this.contentStats = {
+              total: 12847,
+              active: 9234,
+              generated: 1876,
+              filtered: 3613,
+              byType: [
+                { type: 'Scraped Pages', count: 8945 },
+                { type: 'Generated Articles', count: 1876 },
+                { type: 'Entities', count: 1523 },
+                { type: 'Transcripts', count: 503 },
+              ],
+              byStatus: [
+                { status: 'Active', count: 9234, color: 'bg-green-500' },
+                { status: 'Filtered (Step 3)', count: 1842, color: 'bg-orange-500' },
+                { status: 'Filtered (Step 5)', count: 1771, color: 'bg-orange-400' },
+                { status: 'Superseded', count: 412, color: 'bg-gray-500' },
+              ]
+            };
+            this.recentContent = [
+              { id: 'r1', title: 'Betsson Group Company Profile', content_type: 'generated_article', status: 'active', quality_score: 0.95 },
+              { id: 'r2', title: 'Evolution Gaming Q4 Results', content_type: 'scraped_page', status: 'active', quality_score: 0.91 },
+              { id: 'r3', title: 'UKGC AML Guidelines 2025', content_type: 'scraped_page', status: 'active', quality_score: 0.89 },
+              { id: 'r4', title: 'LeoVegas - Responsible Gaming', content_type: 'scraped_page', status: 'active', quality_score: 0.85 },
+              { id: 'r5', title: 'Cookie Policy - LeoVegas', content_type: 'scraped_page', status: 'filtered_step5', quality_score: null },
+            ];
+          } else {
+            // Live API mode
+            await Promise.all([
+              this.loadProjects(),
+              this.loadTemplates(),
+              this.loadRuns(),
+              this.loadContentStats(),
+            ]);
+            // Templates come from project.config.stages now, use mock for UI
+            this.templates = [...MOCK_TEMPLATES];
+          }
+        },
+
+        async loadProjects() {
+          try {
+            const res = await fetch('/api/projects');
+            const data = await res.json();
+            this.projects = data.map(p => ({
+              ...p,
+              label: p.template_name || p.project_type || 'No template',
+              stages: p.stages || [],
+              input_count: (p.input_data || []).length,
+              _expanded: false,
+            }));
+            this.filteredProjects = [...this.projects];
+          } catch (e) {
+            console.error('Failed to load projects:', e);
+            this.showToast('Failed to load projects', 'error');
+          }
+        },
+
+        async loadTemplates() {
+          try {
+            const res = await fetch('/api/templates');
+            const data = await res.json();
+            this.pipelineTemplates = data || [];
+          } catch (e) {
+            console.error('Failed to load templates:', e);
+          }
+        },
+
+        async loadRuns() {
+          try {
+            const res = await fetch('/api/runs?limit=50');
+            const data = await res.json();
+            this.runs = data.map(r => ({
+              ...r,
+              _expanded: false,
+              stages: [], // Will be loaded on expand
+            }));
+          } catch (e) {
+            console.error('Failed to load runs:', e);
+            this.showToast('Failed to load runs', 'error');
+          }
+        },
+
+        async loadContentStats() {
+          try {
+            const res = await fetch('/api/content/stats/summary');
+            const stats = await res.json();
+            this.contentStats = {
+              total: stats.total || 0,
+              active: stats.published || 0,
+              generated: stats.total || 0,
+              filtered: stats.unpublished || 0,
+              byType: Object.entries(stats.by_type || {}).map(([type, count]) => ({ type, count })),
+              byStatus: [
+                { status: 'Published', count: stats.published || 0, color: 'bg-green-500' },
+                { status: 'Unpublished', count: stats.unpublished || 0, color: 'bg-gray-500' },
+              ]
+            };
+            // Load recent content
+            const contentRes = await fetch('/api/content?limit=5');
+            const contentData = await contentRes.json();
+            this.recentContent = (contentData.data || []).map(c => ({
+              id: c.id,
+              title: c.title || c.entity_name || 'Untitled',
+              content_type: c.output_type,
+              status: c.published_at ? 'active' : 'pending',
+              quality_score: c.quality_score,
+            }));
+          } catch (e) {
+            console.error('Failed to load content stats:', e);
+          }
+        },
+
+        // Parse input text into items array
+        // Format: "Name, URL" per line
+        parseInputText(text) {
+          return text.split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0)
+            .map(line => {
+              const parts = line.split(',').map(p => p.trim());
+              return {
+                name: parts[0] || line,
+                url: parts[1] || null
+              };
+            });
+        },
+
+        // Simple project creation - just name, then go to accordion
+        async createProjectSimple() {
+          try {
+            if (!this.newProjectForm.name) {
+              this.showToast('Project name is required', 'error');
+              return;
+            }
+
+            const res = await fetch('/api/projects', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: this.newProjectForm.name,
+                project_type: 'company_profile'
+              }),
+            });
+
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Failed to create project');
+            }
+
+            const project = await res.json();
+            await this.loadProjects();
+            this.showNewProjectModal = false;
+            this.newProjectForm = { name: '', template_id: '', input_text: '' };
+
+            // Open the new project in accordion view
+            const newProject = this.projects.find(p => p.id === project.id);
+            if (newProject) {
+              this.selectProject(newProject);
+            }
+            this.showToast('Project created - add input data in Step 0');
+          } catch (e) {
+            console.error('Failed to create project:', e);
+            this.showToast(e.message, 'error');
+          }
+        },
+
+        async createProject() {
+          try {
+            const inputItems = this.parseInputText(this.newProjectForm.input_text);
+
+            if (!this.newProjectForm.name) {
+              this.showToast('Project name is required', 'error');
+              return;
+            }
+
+            const res = await fetch('/api/projects', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: this.newProjectForm.name,
+                template_id: this.newProjectForm.template_id || null,
+                input_data: inputItems
+              }),
+            });
+
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Failed to create project');
+            }
+
+            await this.loadProjects();
+            this.showNewProjectModal = false;
+            this.newProjectForm = { name: '', template_id: '', input_text: '' };
+            this.showToast('Project created');
+          } catch (e) {
+            console.error('Failed to create project:', e);
+            this.showToast(e.message, 'error');
+          }
+        },
+
+        async startProject(projectId) {
+          try {
+            const res = await fetch(`/api/projects/${projectId}/start`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({}), // Auto-mode: uses project's input_data
+            });
+
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Failed to start run');
+            }
+
+            const run = await res.json();
+            // Track the current run for approval flow
+            this.currentRunId = run.id;
+            this.currentRunEntityId = run.run_entities?.[0]?.id || null;
+            this.showToast(`Run started with ${run.entities_total} items`);
+            await this.loadRuns();
+            this.activeTab = 'monitor';
+          } catch (e) {
+            console.error('Failed to start run:', e);
+            this.showToast(e.message, 'error');
+          }
+        },
+
+        async deleteProject(id) {
+          if (!confirm('Archive this project?')) return;
+          try {
+            const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+            if (!res.ok) throw new Error('Failed to archive');
+            await this.loadProjects();
+            this.showToast('Project archived');
+          } catch (e) {
+            this.showToast('Failed to archive project', 'error');
+          }
+        },
+
+        async loadRunDetails(run) {
+          if (run._expanded) {
+            run._expanded = false;
+            return;
+          }
+          try {
+            const res = await fetch(`/api/runs/${run.id}/entities`);
+            const entities = await res.json();
+            run.runEntities = entities.map(e => ({ ...e, _stagesExpanded: false, stages: [] }));
+            run._expanded = true;
+          } catch (e) {
+            console.error('Failed to load run details:', e);
+          }
+        },
+
+        async loadEntityStages(run, runEntity) {
+          if (runEntity._stagesExpanded) {
+            runEntity._stagesExpanded = false;
+            return;
+          }
+          try {
+            const res = await fetch(`/api/runs/${run.id}/entities/${runEntity.id}`);
+            const data = await res.json();
+            runEntity.stages = data.stages || [];
+            runEntity._stagesExpanded = true;
+          } catch (e) {
+            console.error('Failed to load entity stages:', e);
+            this.showToast('Failed to load stages', 'error');
+          }
+        },
+
+        // Projects
+        filterProjects() {
+          if (!this.projectSearchFilter) { this.filteredProjects = [...this.projects]; return; }
+          const q = this.projectSearchFilter.toLowerCase();
+          this.filteredProjects = this.projects.filter(p => (p.name || '').toLowerCase().includes(q) || (p.label || '').toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q));
+        },
+
+        selectProject(project) {
+          this.selectedProject = project;
+          this.showPipelineAccordion = true;
+          this.expandedStep = 0;
+          // Initialize step states for this project
+          this.stepStates = {};
+          for (let i = 0; i < 12; i++) {
+            this.stepStates[i] = { status: 'pending', resultSummary: '' };
+          }
+          // Mock: completed projects have all steps done
+          if (project.status === 'completed') {
+            for (let i = 0; i < 12; i++) this.stepStates[i].status = 'completed';
+          } else if (project.status === 'running') {
+            for (let i = 0; i < 5; i++) this.stepStates[i].status = 'completed';
+            this.stepStates[5] = { status: 'active', resultSummary: '' };
+            this.expandedStep = 5;
+          } else if (project.status === 'created') {
+            // New/created projects start at Step 0
+            this.stepStates[0] = { status: 'active', resultSummary: '' };
+            this.expandedStep = 0;
+          }
+        },
+
+        startNewProject() {
+          const p = { id: 'p-new-' + Date.now(), name: 'Untitled Project', description: '', source: '', label: '', status: 'created', created_at: new Date().toISOString() };
+          this.projects.unshift(p);
+          this.filterProjects();
+          this.selectProject(p);
+        },
+
+        // Create project from Step 0 and select it
+        async createAndSelectProject() {
+          const name = this.step0NewProjectName?.trim();
+          if (!name) {
+            this.showToast('Please enter a project name', 'error');
+            return;
+          }
+          try {
+            let newProject;
+            if (this.useMockData) {
+              // Demo mode: create mock project locally
+              newProject = {
+                id: 'p-' + Date.now(),
+                name: name,
+                label: 'company-profile',
+                description: '',
+                source: '',
+                status: 'created',
+                input_count: 0,
+                created_at: new Date().toISOString(),
+              };
+              this.projects.unshift(newProject);
+              this.filteredProjects = [...this.projects];
+            } else {
+              // Live mode: API call
+              const res = await fetch('/api/projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, project_type: 'company_profile' }),
+              });
+              if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Failed to create project');
+              }
+              const project = await res.json();
+              await this.loadProjects();
+              newProject = this.projects.find(p => p.id === project.id);
+            }
+            this.step0NewProjectName = '';
+            if (newProject) {
+              this.selectProject(newProject);
+              this.showToast('Project created! Add input data in Step 1.');
+              // Mark Step 0 complete, move to Step 1
+              this.stepStates[0] = { status: 'completed', resultSummary: 'Project created' };
+              this.stepStates[1] = { status: 'active', resultSummary: '' };
+              this.expandedStep = 1;
+            }
+          } catch (e) {
+            console.error('Failed to create project:', e);
+            this.showToast(e.message, 'error');
+          }
+        },
+
+        // Select project by ID (from Step 0 dropdown)
+        selectProjectById(projectId) {
+          if (!projectId) return;
+          const project = this.projects.find(p => p.id === projectId);
+          if (project) {
+            this.selectProject(project);
+            // Mark Step 0 complete, move to Step 1
+            this.stepStates[0] = { status: 'completed', resultSummary: 'Selected: ' + project.name };
+            this.stepStates[1] = { status: 'active', resultSummary: '' };
+            this.expandedStep = 1;
+          }
+        },
+
+        // Accordion
+        toggleStep(i) {
+          this.expandedStep = this.expandedStep === i ? null : i;
+        },
+
+        isStepUnlocked(i) {
+          if (i === 0) return true;
+          const prev = this.stepStates[i - 1];
+          return prev?.status === 'completed' || prev?.status === 'skipped';
+        },
+
+        async markStepCompleted(i) {
+          // In live mode with active run, call approval API
+          if (!this.useMockData && this.currentRunId) {
+            try {
+              const res = await fetch(`/api/runs/${this.currentRunId}/stages/${i}/approve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  run_entity_id: this.currentRunEntityId || undefined,
+                  additional_input: {} // Could add UI for additional input here
+                })
+              });
+
+              if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Failed to approve stage');
+              }
+
+              const result = await res.json();
+              this.showToast(`Stage ${i} approved. ${result.approved} entities continuing to stage ${result.next_stage}.`);
+            } catch (e) {
+              console.error('Failed to approve stage:', e);
+              this.showToast(e.message, 'error');
+              return;
+            }
+          }
+
+          // Update local UI state
+          this.stepStates[i] = { ...this.stepStates[i], status: 'completed' };
+          // Auto-expand next step
+          if (i < 11) {
+            this.stepStates[i + 1] = { ...this.stepStates[i + 1], status: 'active' };
+            this.expandedStep = i + 1;
+          }
+        },
+
+        skipStep(i) {
+          this.stepStates[i] = { ...this.stepStates[i], status: 'skipped' };
+          if (i < 11 && this.stepStates[i + 1]?.status === 'pending') {
+            this.stepStates[i + 1] = { ...this.stepStates[i + 1], status: 'active' };
+            this.expandedStep = i + 1;
+          }
+        },
+
+        reopenStep(i) {
+          this.stepStates[i] = { ...this.stepStates[i], status: 'active' };
+          this.expandedStep = i;
+        },
+
+        // Templates
+        saveTemplate() {
+          const stages = this.editingTemplate.stages.map(s => ({ name: s.name, operation: s.operation }));
+          this.templates.unshift({ id: 't-new-' + Date.now(), name: this.editingTemplate.name, description: this.editingTemplate.description, version: 1, is_active: true, stages });
+          this.editingTemplate = null;
+          this.showToast('Template saved');
+        },
+
+        // Helpers
+        showToast(message, type = 'success') { this.toast = { message, type }; setTimeout(() => { this.toast = null; }, 3000); },
+        formatDate(d) { if (!d) return ''; return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); },
+
+        stepHeaderClass(status) {
+          return ({
+            completed: 'bg-green-100 text-green-600 border border-green-200',
+            approved: 'bg-green-100 text-green-600 border border-green-200',
+            active: 'bg-brand-600 text-white',
+            awaiting_approval: 'bg-yellow-100 text-yellow-600 border border-yellow-200',
+            skipped: 'bg-gray-100 text-gray-300 border border-gray-200',
+            pending: 'bg-gray-100 text-gray-300 border border-gray-200',
+          })[status] || 'bg-gray-100 text-gray-300 border border-gray-200';
+        },
+
+        stepStatusBadge(status) {
+          return ({
+            active: 'bg-blue-100 text-blue-700',
+            completed: 'bg-green-100 text-green-700',
+            approved: 'bg-green-100 text-green-700',
+            awaiting_approval: 'bg-yellow-100 text-yellow-700',
+            running: 'bg-blue-100 text-blue-700',
+            failed: 'bg-red-100 text-red-700',
+            skipped: 'bg-gray-100 text-gray-500',
+            pending: 'bg-gray-100 text-gray-500',
+            created: 'bg-gray-100 text-gray-600',
+            filtered_step3: 'bg-orange-100 text-orange-700',
+            filtered_step5: 'bg-orange-100 text-orange-700',
+          })[status] || 'bg-gray-100 text-gray-600';
+        },
+
+        stageBarClass(status) {
+          return ({
+            completed: 'bg-green-500',
+            running: 'bg-blue-500 animate-pulse',
+            failed: 'bg-red-500',
+            pending: 'bg-gray-200',
+          })[status] || 'bg-gray-200';
+        },
+      };
+    }
+  </script>
+</body>
+</html>
