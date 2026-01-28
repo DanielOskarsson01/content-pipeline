@@ -174,6 +174,7 @@ class PipelineOrchestrator {
 
     const stages = run.projects?.config?.stages || [];
     const nextIndex = completedIndex + 1;
+    const isLastStage = nextIndex >= stages.length;
 
     // Fetch run_entity for snapshot
     const { data: runEntity } = await db
@@ -184,24 +185,12 @@ class PipelineOrchestrator {
 
     if (!runEntity) return null;
 
-    if (nextIndex >= stages.length) {
-      // This entity completed all stages
-      await db
-        .from('run_entities')
-        .update({ status: 'completed' })
-        .eq('id', runEntityId);
-
-      // Update run progress
-      await this.updateRunProgress(runId);
-      return null;
-    }
-
-    // Check if approval is required (default: true for human-in-the-loop)
+    // Check if approval is required for the COMPLETED stage (default: true)
     const currentStage = stages[completedIndex];
-    const requiresApproval = currentStage?.requires_approval !== false; // Default to true
+    const requiresApproval = currentStage?.requires_approval !== false;
 
     if (requiresApproval) {
-      // Pause for approval - don't auto-queue next stage
+      // Pause for approval - even if last stage
       await db
         .from('pipeline_stages')
         .update({ status: 'awaiting_approval' })
@@ -219,10 +208,20 @@ class PipelineOrchestrator {
         .update({ status: 'awaiting_approval' })
         .eq('id', runId);
 
-      return { awaiting_approval: true, completed_stage: completedIndex, next_stage: nextIndex };
+      return { awaiting_approval: true, completed_stage: completedIndex, next_stage: isLastStage ? null : nextIndex, is_last_stage: isLastStage };
     }
 
-    // Auto-continue (approval not required for this stage)
+    // Auto-continue (approval not required)
+    if (isLastStage) {
+      await db
+        .from('run_entities')
+        .update({ status: 'completed' })
+        .eq('id', runEntityId);
+
+      await this.updateRunProgress(runId);
+      return null;
+    }
+
     const nextStage = stages[nextIndex];
     await pipelineQueue.add('execute-stage', {
       runId,
@@ -263,15 +262,7 @@ class PipelineOrchestrator {
 
     const stages = run.projects?.config?.stages || [];
     const nextIndex = stageIndex + 1;
-
-    if (nextIndex >= stages.length) {
-      // No more stages - mark as completed
-      if (runEntityId) {
-        await db.from('run_entities').update({ status: 'completed' }).eq('id', runEntityId);
-      }
-      await this.updateRunProgress(runId);
-      return { completed: true };
-    }
+    const isLastStage = nextIndex >= stages.length;
 
     // Get entities to approve (specific one or all awaiting)
     let entitiesToApprove;
@@ -297,22 +288,10 @@ class PipelineOrchestrator {
       throw err;
     }
 
-    const nextStage = stages[nextIndex];
-    let queued = 0;
+    const nextStage = isLastStage ? null : stages[nextIndex];
+    let processed = 0;
 
     for (const runEntity of entitiesToApprove) {
-      // Get output from the completed stage
-      const { data: prevStage } = await db
-        .from('pipeline_stages')
-        .select('output_data')
-        .eq('run_id', runId)
-        .eq('run_entity_id', runEntity.id)
-        .eq('stage_index', stageIndex)
-        .single();
-
-      // Merge previous output with any additional input provided
-      const input = { ...(prevStage?.output_data || {}), ...additionalInput };
-
       // Mark stage as approved
       await db
         .from('pipeline_stages')
@@ -321,27 +300,50 @@ class PipelineOrchestrator {
         .eq('run_entity_id', runEntity.id)
         .eq('stage_index', stageIndex);
 
-      // Update entity status
-      await db
-        .from('run_entities')
-        .update({ status: 'running' })
-        .eq('id', runEntity.id);
+      if (isLastStage) {
+        // Last stage - mark entity as completed
+        await db
+          .from('run_entities')
+          .update({ status: 'completed' })
+          .eq('id', runEntity.id);
+      } else {
+        // More stages - queue next
+        const { data: prevStage } = await db
+          .from('pipeline_stages')
+          .select('output_data')
+          .eq('run_id', runId)
+          .eq('run_entity_id', runEntity.id)
+          .eq('stage_index', stageIndex)
+          .single();
 
-      // Queue next stage
-      await pipelineQueue.add('execute-stage', {
-        runId,
-        runEntityId: runEntity.id,
-        entitySnapshot: runEntity.entity_snapshot,
-        stageIndex: nextIndex,
-        operationName: nextStage.operation,
-        config: nextStage.config || {},
-        input
-      }, {
-        attempts: (nextStage.retry_count || 0) + 1,
-        backoff: { type: 'exponential', delay: nextStage.retry_delay_ms || 5000 }
-      });
+        const input = { ...(prevStage?.output_data || {}), ...additionalInput };
 
-      queued++;
+        await db
+          .from('run_entities')
+          .update({ status: 'running' })
+          .eq('id', runEntity.id);
+
+        await pipelineQueue.add('execute-stage', {
+          runId,
+          runEntityId: runEntity.id,
+          entitySnapshot: runEntity.entity_snapshot,
+          stageIndex: nextIndex,
+          operationName: nextStage.operation,
+          config: nextStage.config || {},
+          input
+        }, {
+          attempts: (nextStage.retry_count || 0) + 1,
+          backoff: { type: 'exponential', delay: nextStage.retry_delay_ms || 5000 }
+        });
+      }
+
+      processed++;
+    }
+
+    if (isLastStage) {
+      // Update run progress (may mark run as completed)
+      await this.updateRunProgress(runId);
+      return { approved: processed, completed: true };
     }
 
     // Update run status back to running
@@ -350,7 +352,7 @@ class PipelineOrchestrator {
       .update({ status: 'running' })
       .eq('id', runId);
 
-    return { approved: queued, next_stage: nextIndex };
+    return { approved: processed, next_stage: nextIndex };
   }
 
   /**

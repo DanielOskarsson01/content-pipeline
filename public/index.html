@@ -133,7 +133,19 @@
         <!-- Panel Footer -->
         <div class="border-t border-gray-200 px-4 py-3 bg-gray-50 flex items-center justify-between">
           <button class="text-xs text-gray-500 hover:text-gray-700">View full logs</button>
-          <button @click="resultsPanelOpen = false" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded text-xs font-medium">Close</button>
+          <div class="flex items-center gap-2">
+            <!-- Approve/Reject buttons for submodule runs -->
+            <template x-if="currentSubmoduleRun && currentSubmoduleRun.status === 'completed'">
+              <div class="flex items-center gap-2">
+                <button @click="rejectSubmoduleResults()" class="text-xs text-red-600 hover:text-red-800 px-3 py-1.5 rounded border border-red-200 hover:border-red-300">Reject</button>
+                <button @click="approveSubmoduleResults()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded text-xs font-medium">Approve</button>
+              </div>
+            </template>
+            <!-- Approved badge -->
+            <span x-show="currentSubmoduleRun && currentSubmoduleRun.status === 'approved'" class="text-xs text-green-600 bg-green-100 px-3 py-1.5 rounded">Approved</span>
+            <!-- Close button (always shown) -->
+            <button x-show="!currentSubmoduleRun || currentSubmoduleRun.status !== 'completed'" @click="resultsPanelOpen = false" class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded text-xs font-medium">Close</button>
+          </div>
         </div>
       </div>
     </div>
@@ -550,9 +562,8 @@
                               <p class="text-[10px] text-gray-500 mb-2 font-medium uppercase">Submodules</p>
                               <div class="space-y-2">
                                 <template x-for="sub in source.submodules" :key="sub.id">
-                                  <div class="flex items-center justify-between bg-white rounded p-2 border cursor-pointer hover:bg-gray-50 transition-colors group"
-                                       :class="sub.enabled ? 'border-brand-200' : 'border-gray-200 opacity-60'"
-                                       @click="$root.openResultsPanel(sub, source)">
+                                  <div class="flex items-center justify-between bg-white rounded p-2 border hover:bg-gray-50 transition-colors group"
+                                       :class="sub.enabled ? 'border-brand-200' : 'border-gray-200 opacity-60'">
                                     <div class="flex items-center gap-2 min-w-0">
                                       <input type="checkbox" :checked="sub.enabled" @click.stop @change="toggleSubmodule(key, sub.id)"
                                              class="rounded border-gray-300 text-brand-600">
@@ -563,8 +574,23 @@
                                     </div>
                                     <div class="flex items-center gap-1 flex-shrink-0 ml-2">
                                       <span :class="getCostClass(sub.cost)" class="text-[8px] px-1.5 py-0.5 rounded" x-text="sub.cost"></span>
-                                      <span x-show="sub.lastResult" class="text-[10px] text-gray-500 group-hover:hidden" x-text="sub.lastResult"></span>
-                                      <span class="text-[10px] text-brand-500 hidden group-hover:inline">View →</span>
+                                      <!-- Run button -->
+                                      <button x-show="sub.enabled && !$root.useMockData && $root.currentRunId"
+                                              @click.stop="$root.runSubmodule('discovery', sub.id, source)"
+                                              :disabled="$root.runningSubmodules[sub.id]"
+                                              class="text-[10px] px-2 py-0.5 rounded border transition-colors"
+                                              :class="$root.runningSubmodules[sub.id] ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-brand-50 text-brand-600 border-brand-200 hover:bg-brand-100'">
+                                        <span x-show="!$root.runningSubmodules[sub.id]">Run</span>
+                                        <span x-show="$root.runningSubmodules[sub.id]">...</span>
+                                      </button>
+                                      <!-- Results button -->
+                                      <button x-show="sub.lastResult || $root.submoduleResults[sub.id]"
+                                              @click.stop="$root.openSubmoduleResults(sub, source, 'discovery')"
+                                              class="text-[10px] text-brand-600 hover:text-brand-800 px-1">
+                                        <span x-text="$root.submoduleResults[sub.id]?.result_count || sub.lastResult"></span> →
+                                      </button>
+                                      <!-- Mock mode view -->
+                                      <span x-show="$root.useMockData && sub.lastResult" class="text-[10px] text-gray-500 cursor-pointer" @click="$root.openResultsPanel(sub, source)" x-text="sub.lastResult"></span>
                                     </div>
                                   </div>
                                 </template>
@@ -1788,6 +1814,61 @@
                                 <span x-show="stage.worker_id" x-text="stage.worker_id"></span>
                               </div>
                             </div>
+
+                            <!-- Submodule Controls (for discovery stages) -->
+                            <div x-show="stage.stage_name === 'discovery' || stage.stage_name === 'Discovery'" class="bg-white rounded border border-gray-200 p-2 mt-1 mb-2">
+                              <p class="text-[10px] font-medium text-gray-500 mb-2">Run Submodules:</p>
+                              <div class="flex flex-wrap gap-2">
+                                <template x-for="subName in ['sitemap', 'navigation', 'seed-expansion']" :key="subName">
+                                  <div class="flex items-center gap-1">
+                                    <button
+                                      @click="runSubmoduleForEntity(re.id, 'discovery', subName)"
+                                      :disabled="runningSubmodules[subName + '-' + re.id]"
+                                      class="text-[10px] px-2 py-1 rounded border transition-colors"
+                                      :class="runningSubmodules[subName + '-' + re.id] ? 'bg-gray-100 text-gray-400' : 'bg-brand-50 text-brand-600 border-brand-200 hover:bg-brand-100'">
+                                      <span x-show="!runningSubmodules[subName + '-' + re.id]" x-text="subName"></span>
+                                      <span x-show="runningSubmodules[subName + '-' + re.id]">Running...</span>
+                                    </button>
+                                    <button
+                                      x-show="submoduleResults[subName + '-' + re.id]"
+                                      @click="viewSubmoduleResults(re.id, subName)"
+                                      class="text-[10px] text-brand-600 hover:text-brand-800">
+                                      <span x-text="(submoduleResults[subName + '-' + re.id]?.result_count || 0) + ' URLs →'"></span>
+                                    </button>
+                                  </div>
+                                </template>
+                              </div>
+                              <!-- Submodule Results Display -->
+                              <div x-show="currentViewingSubmodule && currentViewingSubmodule.runEntityId === re.id" class="mt-3 border-t pt-2">
+                                <div class="flex items-center justify-between mb-2">
+                                  <span class="text-[10px] font-medium text-gray-700" x-text="'Results: ' + (currentViewingSubmodule?.name || '')"></span>
+                                  <div class="flex gap-2">
+                                    <button
+                                      @click="approveSubmoduleForEntity()"
+                                      class="text-[10px] px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600">
+                                      Approve All
+                                    </button>
+                                    <button
+                                      @click="rejectSubmoduleForEntity()"
+                                      class="text-[10px] px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600">
+                                      Reject
+                                    </button>
+                                    <button
+                                      @click="currentViewingSubmodule = null"
+                                      class="text-[10px] px-2 py-1 bg-gray-200 text-gray-600 rounded hover:bg-gray-300">
+                                      Close
+                                    </button>
+                                  </div>
+                                </div>
+                                <div class="max-h-40 overflow-y-auto bg-gray-50 rounded p-2">
+                                  <template x-for="url in (currentViewingSubmodule?.results || []).slice(0, 20)" :key="url.url">
+                                    <div class="text-[10px] text-gray-600 truncate py-0.5" x-text="url.url"></div>
+                                  </template>
+                                  <p x-show="(currentViewingSubmodule?.results || []).length > 20" class="text-[10px] text-gray-400 mt-1" x-text="'... and ' + ((currentViewingSubmodule?.results || []).length - 20) + ' more'"></p>
+                                </div>
+                              </div>
+                            </div>
+
                             <!-- Output data -->
                             <div x-show="stage.output_data" class="bg-white rounded border border-gray-200 p-2 mt-1">
                               <p class="text-[10px] font-medium text-gray-500 mb-1">Output:</p>
@@ -2027,6 +2108,13 @@
         // Active run tracking (for approval flow)
         currentRunId: null,
         currentRunEntityId: null,
+        currentRunEntityIds: [], // All entity IDs for current run
+
+        // Submodule execution tracking
+        runningSubmodules: {},   // { submoduleId: true } or { 'subName-runEntityId': true } while running
+        submoduleResults: {},    // { submoduleId: { result_count, results, status, submodule_run_id } }
+        currentSubmoduleRun: null, // Currently displayed submodule run in panel
+        currentViewingSubmodule: null, // { runEntityId, name, results, submodule_run_id } for inline view
 
         // Runs
         runs: [],
@@ -2045,6 +2133,7 @@
 
         // Open results panel with submodule data (mock mode)
         openResultsPanel(submodule, category) {
+          this.currentSubmoduleRun = null; // Clear any previous submodule run
           this.resultsPanel = {
             icon: category?.icon || '📊',
             title: submodule.name,
@@ -2060,6 +2149,274 @@
             log: null
           };
           this.resultsPanelOpen = true;
+        },
+
+        // Run a single submodule (live mode)
+        async runSubmodule(type, submoduleId, category) {
+          if (!this.currentRunId) {
+            this.showToast('Start a run first to execute submodules', 'error');
+            return;
+          }
+
+          // Get run entity IDs if not already loaded
+          if (this.currentRunEntityIds.length === 0) {
+            try {
+              const res = await fetch(`/api/runs/${this.currentRunId}/entities`);
+              const entities = await res.json();
+              this.currentRunEntityIds = entities.map(e => e.id);
+            } catch (e) {
+              this.showToast('Failed to get run entities', 'error');
+              return;
+            }
+          }
+
+          if (this.currentRunEntityIds.length === 0) {
+            this.showToast('No entities in this run', 'error');
+            return;
+          }
+
+          // Mark as running
+          this.runningSubmodules[submoduleId] = true;
+
+          try {
+            const res = await fetch(`/api/submodules/${type}/${submoduleId}/execute`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                run_id: this.currentRunId,
+                run_entity_ids: this.currentRunEntityIds,
+                config: {} // Could add config UI here
+              })
+            });
+
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Execution failed');
+            }
+
+            const result = await res.json();
+
+            // Store result
+            this.submoduleResults[submoduleId] = {
+              result_count: result.result_count,
+              results: result.results,
+              status: result.status,
+              submodule_run_id: result.submodule_run_id,
+              duration_ms: result.duration_ms,
+              error: result.error
+            };
+
+            // Open results panel
+            this.openSubmoduleResults({ id: submoduleId, name: submoduleId }, category, type);
+
+            this.showToast(`Found ${result.result_count} results`);
+          } catch (e) {
+            console.error('Submodule execution failed:', e);
+            this.showToast(e.message, 'error');
+          } finally {
+            this.runningSubmodules[submoduleId] = false;
+          }
+        },
+
+        // Open results panel for a submodule run
+        openSubmoduleResults(submodule, category, type) {
+          const result = this.submoduleResults[submodule.id];
+          if (!result) {
+            this.openResultsPanel(submodule, category);
+            return;
+          }
+
+          this.currentSubmoduleRun = {
+            type,
+            submoduleId: submodule.id,
+            submodule_run_id: result.submodule_run_id,
+            status: result.status
+          };
+
+          this.resultsPanel = {
+            icon: category?.icon || '📊',
+            title: submodule.name || submodule.id,
+            subtitle: `${category?.label || type} • ${result.result_count} results`,
+            status: result.status === 'completed' ? 'success' :
+                    result.status === 'approved' ? 'success' :
+                    result.status === 'failed' ? 'error' : 'pending',
+            timestamp: result.duration_ms ? `Duration: ${result.duration_ms}ms` : '',
+            stats: {
+              total: result.result_count,
+              status: result.status
+            },
+            items: (result.results || []).slice(0, 100).map(r => ({
+              url: r.url,
+              title: r.metadata?.title || r.url,
+              description: r.metadata?.source || '',
+              status: 'success'
+            })),
+            log: result.error || null
+          };
+          this.resultsPanelOpen = true;
+        },
+
+        // Approve submodule results
+        async approveSubmoduleResults() {
+          if (!this.currentSubmoduleRun?.submodule_run_id) {
+            this.showToast('No submodule run to approve', 'error');
+            return;
+          }
+
+          try {
+            const res = await fetch(`/api/submodules/runs/${this.currentRunId}/${this.currentSubmoduleRun.submodule_run_id}/approve`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({})
+            });
+
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Approval failed');
+            }
+
+            const result = await res.json();
+
+            // Update local state
+            if (this.submoduleResults[this.currentSubmoduleRun.submoduleId]) {
+              this.submoduleResults[this.currentSubmoduleRun.submoduleId].status = 'approved';
+            }
+            this.currentSubmoduleRun.status = 'approved';
+            this.resultsPanel.status = 'success';
+
+            this.showToast(`Approved ${result.urls_saved} URLs`);
+            this.resultsPanelOpen = false;
+          } catch (e) {
+            console.error('Approval failed:', e);
+            this.showToast(e.message, 'error');
+          }
+        },
+
+        // Reject submodule results
+        async rejectSubmoduleResults() {
+          if (!this.currentSubmoduleRun?.submodule_run_id) {
+            this.resultsPanelOpen = false;
+            return;
+          }
+
+          try {
+            await fetch(`/api/submodules/runs/${this.currentRunId}/${this.currentSubmoduleRun.submodule_run_id}`, {
+              method: 'DELETE'
+            });
+
+            // Update local state
+            if (this.submoduleResults[this.currentSubmoduleRun.submoduleId]) {
+              this.submoduleResults[this.currentSubmoduleRun.submoduleId].status = 'rejected';
+            }
+
+            this.showToast('Results rejected');
+            this.resultsPanelOpen = false;
+          } catch (e) {
+            console.error('Rejection failed:', e);
+          }
+        },
+
+        // Run a submodule for a specific entity (in run details view)
+        async runSubmoduleForEntity(runEntityId, type, submoduleName) {
+          if (!this.currentRunId) {
+            this.showToast('No active run', 'error');
+            return;
+          }
+
+          const key = `${submoduleName}-${runEntityId}`;
+          this.runningSubmodules[key] = true;
+
+          try {
+            const res = await fetch(`/api/submodules/${type}/${submoduleName}/execute`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                run_id: this.currentRunId,
+                run_entity_ids: [runEntityId]
+              })
+            });
+
+            const result = await res.json();
+            if (!res.ok) throw new Error(result.error || 'Execution failed');
+
+            // Store results
+            this.submoduleResults[key] = {
+              result_count: result.result_count,
+              results: result.results || [],
+              status: result.status,
+              submodule_run_id: result.submodule_run_id
+            };
+
+            this.showToast(`${submoduleName}: ${result.result_count} URLs found`);
+          } catch (e) {
+            console.error('Submodule execution failed:', e);
+            this.showToast(`Failed: ${e.message}`, 'error');
+          } finally {
+            this.runningSubmodules[key] = false;
+          }
+        },
+
+        // View submodule results inline
+        viewSubmoduleResults(runEntityId, submoduleName) {
+          const key = `${submoduleName}-${runEntityId}`;
+          const data = this.submoduleResults[key];
+          if (!data) return;
+
+          this.currentViewingSubmodule = {
+            runEntityId,
+            name: submoduleName,
+            results: data.results || [],
+            submodule_run_id: data.submodule_run_id,
+            key
+          };
+        },
+
+        // Approve submodule results for entity
+        async approveSubmoduleForEntity() {
+          if (!this.currentViewingSubmodule?.submodule_run_id) return;
+
+          try {
+            const res = await fetch(`/api/submodules/runs/${this.currentRunId}/${this.currentViewingSubmodule.submodule_run_id}/approve`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({})
+            });
+
+            const result = await res.json();
+            if (!res.ok) throw new Error(result.error || 'Approval failed');
+
+            // Update local state
+            if (this.submoduleResults[this.currentViewingSubmodule.key]) {
+              this.submoduleResults[this.currentViewingSubmodule.key].status = 'approved';
+            }
+
+            this.showToast(`Approved: ${result.urls_saved} URLs saved to discovered_urls`);
+            this.currentViewingSubmodule = null;
+          } catch (e) {
+            console.error('Approval failed:', e);
+            this.showToast(`Failed: ${e.message}`, 'error');
+          }
+        },
+
+        // Reject submodule results for entity
+        async rejectSubmoduleForEntity() {
+          if (!this.currentViewingSubmodule?.submodule_run_id) return;
+
+          try {
+            await fetch(`/api/submodules/runs/${this.currentRunId}/${this.currentViewingSubmodule.submodule_run_id}`, {
+              method: 'DELETE'
+            });
+
+            // Update local state
+            if (this.submoduleResults[this.currentViewingSubmodule.key]) {
+              this.submoduleResults[this.currentViewingSubmodule.key].status = 'rejected';
+            }
+
+            this.showToast('Results rejected');
+            this.currentViewingSubmodule = null;
+          } catch (e) {
+            console.error('Rejection failed:', e);
+          }
         },
 
         // Open results panel with real stage output (live mode)
@@ -2432,6 +2789,11 @@
             // Track the current run for approval flow
             this.currentRunId = run.id;
             this.currentRunEntityId = run.run_entities?.[0]?.id || null;
+            this.currentRunEntityIds = (run.run_entities || []).map(e => e.id);
+            // Reset submodule tracking for new run
+            this.runningSubmodules = {};
+            this.submoduleResults = {};
+            this.currentSubmoduleRun = null;
             this.showToast(`Run started with ${run.entities_total} items`);
             await this.loadRuns();
             this.activeTab = 'monitor';
@@ -2463,6 +2825,10 @@
             const entities = await res.json();
             run.runEntities = entities.map(e => ({ ...e, _stagesExpanded: false, stages: [] }));
             run._expanded = true;
+            // Set current run context for submodule operations
+            this.currentRunId = run.id;
+            this.currentRunEntityIds = entities.map(e => e.id);
+            this.currentViewingSubmodule = null;
           } catch (e) {
             console.error('Failed to load run details:', e);
           }

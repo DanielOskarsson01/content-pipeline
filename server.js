@@ -22,6 +22,7 @@ app.use('/api/projects', require('./routes/projects'));
 app.use('/api/runs', require('./routes/runs'));
 app.use('/api/entities', require('./routes/entities'));
 app.use('/api/content', require('./routes/generated-content'));
+app.use('/api/submodules', require('./routes/submodules'));
 
 // Error handler (must be last)
 app.use(require('./middleware/errorHandler'));
