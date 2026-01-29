@@ -1,0 +1,255 @@
+<!--
+  ============================================================================
+  REUSABLE UI TEMPLATES
+  ============================================================================
+  Copy these patterns when building new steps. The STRUCTURE stays the same,
+  only the CONTENT inside each section changes per step.
+
+  Colors:
+  - Teal header: bg-[#0891B2]
+  - Pink accent: bg-[#E11D73]
+  - Brand colors: brand-400, brand-500 etc.
+  ============================================================================
+-->
+
+
+<!-- ========================================================================
+     TEMPLATE 1: SUBMODULE PANEL (Slide-in from left)
+     ========================================================================
+     Use for: Any step that has submodules that need configuration
+     Structure: Header + Description + 3 Accordions + Footer CTAs
+-->
+
+<div class="fixed inset-y-0 left-0 w-full max-w-lg bg-gray-100 shadow-2xl slide-panel flex flex-col"
+     :class="panelOpen ? 'open' : ''">
+
+  <!-- PANEL HEADER (Teal) -->
+  <div class="bg-[#0891B2] text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
+    <div>
+      <h3 class="text-base font-semibold" x-text="'StepX - ' + (activeSubmodule?.name || 'Submodule')"></h3>
+      <p class="text-xs text-white/70" x-text="selectedProject?.name || 'Project name'"></p>
+    </div>
+    <button @click="closePanel()" class="p-1 text-white/80 hover:text-white rounded hover:bg-white/10">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- DESCRIPTION BAR -->
+  <p class="px-4 py-2 text-xs text-gray-500 bg-white border-b flex-shrink-0"
+     x-text="activeSubmodule?.description || ''"></p>
+
+  <!-- ACCORDIONS CONTAINER -->
+  <div class="flex-1 flex flex-col overflow-hidden p-3 gap-3">
+
+    <!-- ACCORDION 1: Input Data (Teal header) -->
+    <div class="bg-white rounded-lg border border-gray-200 flex-shrink-0"
+         :class="{'flex-1 flex flex-col min-h-0': panelAccordion === 'input'}">
+      <button @click="panelAccordion = panelAccordion === 'input' ? null : 'input'"
+              class="w-full flex items-center justify-between px-4 py-3 bg-[#0891B2] text-white rounded-t-lg">
+        <div class="flex items-center gap-3">
+          <span class="font-semibold text-sm">Input data</span>
+          <span class="text-xs text-white/70"><!-- Status text here --></span>
+        </div>
+        <div class="w-6 h-6 rounded-full bg-[#E11D73] flex items-center justify-center">
+          <span class="text-white font-bold text-sm" x-text="panelAccordion === 'input' ? '−' : '+'"></span>
+        </div>
+      </button>
+      <div x-show="panelAccordion === 'input'" class="p-4 flex-1 overflow-y-auto">
+        <!-- STEP-SPECIFIC INPUT CONTENT HERE -->
+      </div>
+    </div>
+
+    <!-- ACCORDION 2: Advanced Options (Teal header) -->
+    <div class="bg-white rounded-lg border border-gray-200 flex-shrink-0"
+         :class="{'flex-1 flex flex-col min-h-0': panelAccordion === 'options'}">
+      <button @click="panelAccordion = panelAccordion === 'options' ? null : 'options'"
+              class="w-full flex items-center justify-between px-4 py-3 bg-[#0891B2] text-white rounded-t-lg">
+        <div class="flex items-center gap-3">
+          <span class="font-semibold text-sm">Advanced options</span>
+          <span class="text-xs text-white/70">Default settings</span>
+        </div>
+        <div class="w-6 h-6 rounded-full bg-[#E11D73] flex items-center justify-center">
+          <span class="text-white font-bold text-sm" x-text="panelAccordion === 'options' ? '−' : '+'"></span>
+        </div>
+      </button>
+      <div x-show="panelAccordion === 'options'" class="p-4 flex-1 overflow-y-auto">
+        <!-- STEP-SPECIFIC OPTIONS CONTENT HERE -->
+      </div>
+    </div>
+
+    <!-- ACCORDION 3: Results (Pink header - different from others) -->
+    <div class="bg-white rounded-lg border border-gray-200"
+         :class="panelAccordion === 'results' ? 'flex-1 flex flex-col min-h-0' : 'flex-shrink-0'"
+         x-show="hasResults">
+      <button @click="panelAccordion = panelAccordion === 'results' ? null : 'results'"
+              class="w-full flex items-center justify-between px-4 py-3 bg-[#E11D73] text-white rounded-t-lg">
+        <div class="flex items-center gap-3">
+          <span class="font-semibold text-sm">Results</span>
+          <span class="text-xs text-white/70"><!-- Result count here --></span>
+        </div>
+        <div class="w-6 h-6 rounded-full bg-white flex items-center justify-center">
+          <span class="text-[#E11D73] font-bold text-sm" x-text="panelAccordion === 'results' ? '−' : '+'"></span>
+        </div>
+      </button>
+      <div x-show="panelAccordion === 'results'" class="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <!-- STEP-SPECIFIC RESULTS CONTENT HERE -->
+
+        <!-- Reject button (standard) -->
+        <button @click="rejectResults(); panelAccordion = 'input';"
+                class="mt-3 mx-4 mb-4 w-auto bg-[#E11D73] hover:bg-[#E11D73]/90 text-white py-2 rounded text-sm font-medium flex-shrink-0">
+          Reject and try with new settings or uploads
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- PANEL FOOTER - Standard 3-button layout -->
+  <div class="border-t border-gray-200 px-4 py-3 bg-white flex-shrink-0">
+    <div class="flex items-center justify-center gap-3">
+      <button @click="runTask()"
+              :disabled="!canRun"
+              :class="canRun ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
+              class="px-8 py-3 rounded text-sm font-medium">
+        RUN TASK
+      </button>
+      <button @click="panelAccordion = 'results'"
+              :disabled="!hasResults"
+              :class="hasResults ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
+              class="px-8 py-3 rounded text-sm font-medium">
+        SEE RESULTS
+      </button>
+      <button @click="approve()"
+              :disabled="!hasResults || isApproved"
+              :class="hasResults && !isApproved ? 'bg-[#E11D73] hover:bg-[#E11D73]/90 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
+              class="px-8 py-3 rounded text-sm font-medium">
+        APPROVE
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ========================================================================
+     TEMPLATE 2: CATEGORY CARD (with inline expand)
+     ========================================================================
+     Use for: Grouping submodules into categories within a step
+     Structure: Card header + Expandable submodule list
+-->
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  <template x-for="(cat, catKey) in categories" :key="catKey">
+    <div class="rounded-lg border transition-all"
+         :class="{
+           'border-dashed border-2 border-brand-400 bg-white': cat.expanded,
+           'border-gray-200 bg-white hover:border-gray-300': !cat.expanded
+         }">
+
+      <!-- CARD HEADER (always visible) -->
+      <div class="p-3 cursor-pointer" @click="toggleCategory(catKey)">
+        <p class="text-sm font-semibold text-gray-800" x-text="cat.label"></p>
+        <p class="text-[10px] text-gray-500">
+          <span x-text="getApprovedCount(cat) + '/' + cat.submodules.length"></span> submodules
+        </p>
+      </div>
+
+      <!-- EXPANDED: Submodule List -->
+      <div x-show="cat.expanded" x-transition class="border-t border-gray-200">
+        <p class="text-[10px] text-gray-500 font-medium uppercase px-3 pt-2">Submodules</p>
+        <div class="p-2 space-y-1">
+          <template x-for="sub in cat.submodules" :key="sub.id">
+            <div class="flex items-center justify-between p-2 rounded hover:bg-gray-50 cursor-pointer group"
+                 @click.stop="openSubmodule(sub, cat)">
+              <div class="flex items-center gap-2">
+                <input type="checkbox"
+                       :checked="sub.status === 'approved'"
+                       @click.stop
+                       class="rounded border-gray-300 text-[#0891B2]">
+                <div>
+                  <p class="text-sm text-gray-700"
+                     :class="{'text-[#E11D73]': sub.status === 'approved'}"
+                     x-text="sub.name"></p>
+                  <p class="text-[10px] text-gray-400" x-text="sub.description"></p>
+                </div>
+              </div>
+              <!-- Arrow icon -->
+              <svg class="w-5 h-5 text-[#E11D73] opacity-50 group-hover:opacity-100" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/>
+              </svg>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </template>
+</div>
+
+
+<!-- ========================================================================
+     TEMPLATE 3: STEP INFO BANNER
+     ========================================================================
+     Use for: Explaining what the step does at the top
+-->
+
+<div class="bg-blue-50 rounded-lg p-3 border border-blue-200 mb-4">
+  <p class="text-xs text-[#E11D73] font-medium mb-1">Step Title Here</p>
+  <p class="text-xs text-gray-600">Step description explaining what this step does and why.</p>
+</div>
+
+<!-- Variations by color: -->
+<!-- Blue: bg-blue-50 border-blue-200 -->
+<!-- Orange: bg-orange-50 border-orange-200 text-orange-700 -->
+<!-- Green: bg-green-50 border-green-200 text-green-700 -->
+<!-- Purple: bg-purple-50 border-purple-200 text-purple-700 -->
+
+
+<!-- ========================================================================
+     TEMPLATE 4: SUMMARY BOX
+     ========================================================================
+     Use for: Showing aggregated stats at bottom of step
+-->
+
+<div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+  <div class="flex items-center justify-between mb-2">
+    <p class="text-xs text-gray-600 font-medium uppercase">Step Summary</p>
+    <span class="text-xs text-gray-500"><!-- Status text --></span>
+  </div>
+  <div class="flex flex-wrap gap-4 text-sm">
+    <span class="text-gray-700">
+      <span class="font-semibold text-lg">0</span> total items
+    </span>
+    <!-- Category breakdowns -->
+  </div>
+</div>
+
+
+<!-- ========================================================================
+     USAGE INSTRUCTIONS
+     ========================================================================
+
+     When building a new step (e.g., Step 2 - Validation):
+
+     1. Copy the STEP INFO BANNER, change colors/text
+     2. Copy CATEGORY CARDS if step has multiple categories
+        - Define categories data structure in Alpine
+        - Each category has: { label, expanded, submodules: [...] }
+     3. The SUBMODULE PANEL is shared across all steps
+        - Just change the content inside each accordion
+     4. Copy SUMMARY BOX at bottom
+
+     Data structure for categories:
+
+     stepXCategories: {
+       categoryA: {
+         label: 'Category A',
+         expanded: false,
+         submodules: [
+           { id: 'sub1', name: 'Submodule 1', description: '...', status: 'pending' },
+           { id: 'sub2', name: 'Submodule 2', description: '...', status: 'pending' }
+         ]
+       },
+       categoryB: { ... }
+     }
+-->
