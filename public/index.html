@@ -105,14 +105,24 @@
               </div>
             </button>
             <div x-show="panelAccordion === 'input'" class="p-4 flex-1 overflow-y-auto">
-              <!-- Entity context exists -->
-              <div x-show="entityContext && entityContext.entities?.length > 0">
-                <div class="flex items-center gap-2 text-green-700 mb-2">
-                  <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                  <span class="text-xs font-medium" x-text="entityContext.entities.length + ' entities loaded'"></span>
+              <!-- Entity context exists (shared from another submodule or previous upload) -->
+              <div x-show="entityContext && entityContext.entities?.length > 0 && !showUploadForm">
+                <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-3">
+                  <div class="flex items-center gap-2 text-green-700 mb-1">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                    <span class="text-xs font-medium" x-text="entityContext.entities.length + ' entities available'"></span>
+                  </div>
+                  <p class="text-[10px] text-gray-600 mb-2" x-text="(entityContext.stats?.by_column?.website || 0) + ' have website, ' + (entityContext.stats?.by_column?.linkedin || 0) + ' have linkedin'"></p>
+                  <p x-show="entityContext.source_submodule" class="text-[10px] text-gray-500" x-text="'From: ' + entityContext.source_submodule"></p>
                 </div>
-                <p class="text-[10px] text-gray-500 mb-3" x-text="(entityContext.stats?.by_column?.website || 0) + ' have website'"></p>
-                <button @click="showUploadForm = true" class="text-xs text-gray-600 hover:text-gray-800 underline">Upload different data</button>
+                <div class="flex gap-2">
+                  <button @click="useExistingEntities()" class="flex-1 bg-[#0891B2] hover:bg-[#0891B2]/90 text-white py-2 rounded text-sm font-medium">
+                    Use these
+                  </button>
+                  <button @click="showUploadForm = true" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-2 rounded text-sm font-medium">
+                    Upload different
+                  </button>
+                </div>
               </div>
               <!-- Upload form -->
               <div x-show="!entityContext || !entityContext.entities?.length || showUploadForm">
@@ -2788,20 +2798,23 @@
         },
 
         async loadEntityContext() {
+          // If no run ID, keep any existing local context (preview mode)
           if (!this.currentRunId) {
-            this.entityContext = null;
+            // Don't wipe entityContext - it may have been set locally
             return;
           }
           try {
             const res = await fetch(`/api/runs/${this.currentRunId}/step-context?step_index=1`);
             if (res.ok) {
-              this.entityContext = await res.json();
-            } else {
-              this.entityContext = null;
+              const data = await res.json();
+              // Only update if API returns data (don't wipe local if API has nothing)
+              if (data && data.entities?.length > 0) {
+                this.entityContext = data;
+              }
             }
           } catch (e) {
             console.error('Failed to load entity context:', e);
-            this.entityContext = null;
+            // Don't wipe local context on error
           }
         },
 
