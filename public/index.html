@@ -2852,14 +2852,133 @@
           if (!file) return;
 
           const reader = new FileReader();
-          reader.onload = (e) => {
+          reader.onload = async (e) => {
             const text = e.target.result;
-            const lines = text.trim().split('\n');
-            const rowCount = lines.length - 1; // Exclude header
-            this.uploadedCsvInfo = `${file.name} (${rowCount} rows)`;
+            const entities = this.parseCsvToEntities(text);
+
+            if (entities.length === 0) {
+              this.showToast('No valid entities found in CSV', 'error');
+              return;
+            }
+
+            this.uploadedCsvInfo = `${file.name} (${entities.length} entities)`;
+
+            // Store in local state for immediate use
+            this.entityContext = {
+              entities,
+              source_submodule: this.activeSubmodule?.id || 'csv-upload',
+              stats: this.calculateEntityStats(entities)
+            };
+
+            // Save to step context API if we have a run
+            if (this.currentRunId) {
+              try {
+                await fetch(`/api/runs/${this.currentRunId}/step-context`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    step_index: 1,
+                    entities,
+                    source_submodule: this.activeSubmodule?.id || 'csv-upload'
+                  })
+                });
+              } catch (err) {
+                console.warn('Failed to save step context:', err);
+              }
+            }
+
             this.submoduleState = 'ready';
           };
           reader.readAsText(file);
+        },
+
+        parseCsvToEntities(csvText) {
+          const lines = csvText.trim().split('\n');
+          if (lines.length < 2) return [];
+
+          // Parse header
+          const header = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/['"]/g, ''));
+
+          // Map common variations to standard names
+          const columnMap = {
+            'entity_name': 'entity_name',
+            'name': 'entity_name',
+            'company': 'entity_name',
+            'company_name': 'entity_name',
+            'website': 'website',
+            'url': 'website',
+            'domain': 'website',
+            'linkedin': 'linkedin',
+            'linkedin_url': 'linkedin',
+            'youtube': 'youtube',
+            'youtube_url': 'youtube',
+            'twitter': 'twitter',
+            'twitter_url': 'twitter',
+            'category': 'category'
+          };
+
+          const entities = [];
+          for (let i = 1; i < lines.length; i++) {
+            const values = this.parseCsvLine(lines[i]);
+            if (values.length === 0) continue;
+
+            const entity = {};
+            header.forEach((col, idx) => {
+              const standardCol = columnMap[col] || col;
+              if (values[idx]) {
+                entity[standardCol] = values[idx].trim().replace(/^["']|["']$/g, '');
+              }
+            });
+
+            // Skip if no entity_name
+            if (!entity.entity_name) continue;
+
+            entities.push(entity);
+          }
+
+          return entities;
+        },
+
+        parseCsvLine(line) {
+          const result = [];
+          let current = '';
+          let inQuotes = false;
+
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"' && !inQuotes) {
+              inQuotes = true;
+            } else if (char === '"' && inQuotes) {
+              inQuotes = false;
+            } else if (char === ',' && !inQuotes) {
+              result.push(current);
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          result.push(current);
+          return result;
+        },
+
+        calculateEntityStats(entities) {
+          const byColumn = {};
+          const columns = new Set();
+
+          for (const entity of entities) {
+            for (const [key, value] of Object.entries(entity)) {
+              if (value) {
+                columns.add(key);
+                byColumn[key] = (byColumn[key] || 0) + 1;
+              }
+            }
+          }
+
+          return {
+            total: entities.length,
+            columns: Array.from(columns),
+            by_column: byColumn
+          };
         },
 
         handleCsvDrop(event) {
@@ -2941,13 +3060,46 @@
 
           // Live API execution
           try {
+            // Build entities from context or URL input
+            let entities = [];
+            if (this.entityContext?.entities?.length > 0) {
+              entities = this.entityContext.entities.map((e, idx) => ({
+                id: `entity-${idx}`,
+                name: e.entity_name,
+                website: e.website,
+                metadata: { ...e }
+              }));
+            } else if (this.submoduleInputUrls.trim()) {
+              const urls = this.submoduleInputUrls.trim().split('\n').filter(u => u.trim());
+              entities = urls.map((url, idx) => {
+                try {
+                  const fullUrl = url.startsWith('http') ? url : 'https://' + url;
+                  const parsed = new URL(fullUrl);
+                  return { id: `entity-${idx}`, name: parsed.hostname.replace('www.', ''), website: fullUrl };
+                } catch { return null; }
+              }).filter(e => e);
+            }
+
+            if (entities.length === 0) {
+              this.showToast('No valid entities to process', 'error');
+              this.submoduleState = 'idle';
+              return;
+            }
+
+            // Build config from UI options
+            const config = {
+              include_nested: this.submoduleOptions.include_nested,
+              scan_areas: [this.submoduleOptions.scan_header && 'header', this.submoduleOptions.scan_footer && 'footer', this.submoduleOptions.scan_sidebar && 'sidebar'].filter(Boolean),
+              same_domain_only: this.submoduleOptions.same_domain
+            };
+
             const res = await fetch(`/api/submodules/discovery/${this.activeSubmodule.id}/execute`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 run_id: this.currentRunId,
-                urls: this.submoduleInputUrls.trim().split('\n').filter(u => u.trim()),
-                options: this.submoduleOptions
+                run_entity_ids: this.currentRunEntityIds?.length > 0 ? this.currentRunEntityIds : entities.map(e => e.id),
+                config
               })
             });
 
@@ -2957,7 +3109,23 @@
             }
 
             const result = await res.json();
-            this.submoduleRunResult = result;
+
+            // Group results by entity for display
+            const groupedEntities = {};
+            (result.results || []).forEach(r => {
+              const name = r.entity_name || 'Unknown';
+              if (!groupedEntities[name]) groupedEntities[name] = { name, url_count: 0, error: null };
+              groupedEntities[name].url_count++;
+            });
+
+            this.submoduleRunResult = {
+              result_count: result.result_count || 0,
+              submodule_run_id: result.submodule_run_id,
+              entities: Object.values(groupedEntities),
+              sample_urls: (result.results || []).slice(0, 20).map(r => r.url),
+              errors: result.results?._errors || []
+            };
+
             this.activeSubmodule.status = 'has_results';
             this.activeSubmodule.result_count = result.result_count || 0;
             this.submoduleState = 'completed';

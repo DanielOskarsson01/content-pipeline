@@ -329,6 +329,129 @@ router.get('/:id/discovered-urls', async (req, res, next) => {
 });
 
 /**
+ * GET /api/runs/:id/step-context
+ * Get shared entity context for a step (used by submodules to share CSV data)
+ */
+router.get('/:id/step-context', async (req, res, next) => {
+  try {
+    const { step_index } = req.query;
+
+    let query = db
+      .from('step_context')
+      .select('*')
+      .eq('run_id', req.params.id);
+
+    if (step_index !== undefined) {
+      query = query.eq('step_index', parseInt(step_index));
+    }
+
+    const { data, error } = await query;
+
+    // Table might not exist yet - return empty gracefully
+    if (error && error.code === '42P01') {
+      return res.json(step_index !== undefined ? null : []);
+    }
+    if (error) throw error;
+
+    // If querying specific step, return single object with stats
+    if (step_index !== undefined) {
+      const context = data?.[0] || null;
+      if (!context) {
+        return res.json(null);
+      }
+
+      // Calculate stats for the context
+      const entities = context.entities || [];
+      const columns = new Set();
+      const byColumn = {};
+
+      for (const entity of entities) {
+        for (const [key, value] of Object.entries(entity)) {
+          if (value) {
+            columns.add(key);
+            byColumn[key] = (byColumn[key] || 0) + 1;
+          }
+        }
+      }
+
+      return res.json({
+        ...context,
+        stats: {
+          total: entities.length,
+          columns: Array.from(columns),
+          by_column: byColumn
+        }
+      });
+    }
+
+    res.json(data || []);
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/runs/:id/step-context
+ * Create or update shared entity context for a step
+ * Body: { step_index: number, entities: array, source_submodule: string }
+ */
+router.post('/:id/step-context', async (req, res, next) => {
+  try {
+    const { step_index, entities, source_submodule } = req.body;
+
+    if (step_index === undefined || !Array.isArray(entities)) {
+      return res.status(400).json({
+        error: 'step_index and entities array are required'
+      });
+    }
+
+    // Validate entities have at least entity_name
+    const validEntities = entities.filter(e => e.entity_name);
+    if (validEntities.length === 0) {
+      return res.status(400).json({
+        error: 'At least one entity with entity_name is required'
+      });
+    }
+
+    // Upsert by (run_id, step_index)
+    const record = {
+      run_id: req.params.id,
+      step_index: parseInt(step_index),
+      entities: validEntities,
+      source_submodule: source_submodule || null
+    };
+
+    const { data, error } = await db
+      .from('step_context')
+      .upsert(record, {
+        onConflict: 'run_id,step_index',
+        returning: 'representation'
+      })
+      .select()
+      .single();
+
+    if (error && error.code === '42P01') {
+      return res.status(503).json({
+        error: 'step_context table not created yet. Run sql/add_step_context.sql'
+      });
+    }
+    if (error) throw error;
+
+    // Calculate columns present
+    const columns = new Set();
+    for (const entity of validEntities) {
+      for (const [key, value] of Object.entries(entity)) {
+        if (value) columns.add(key);
+      }
+    }
+
+    res.json({
+      id: data.id,
+      entities_count: validEntities.length,
+      columns: Array.from(columns)
+    });
+  } catch (err) { next(err); }
+});
+
+/**
  * GET /api/runs/:id/scraped-pages
  * Get scraped pages for a run (or specific entity)
  */
