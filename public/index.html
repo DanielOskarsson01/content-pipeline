@@ -37,13 +37,277 @@
     .panel-backdrop.open {
       opacity: 1;
     }
+
+    /* Submodule state indicators */
+    .submodule-card {
+      transition: all 0.2s ease-out;
+    }
+    .submodule-card.approved {
+      border-color: #22c55e;
+      background: linear-gradient(to right, #f0fdf4 0%, white 100%);
+    }
+    .submodule-card.has-results {
+      border-color: #3b82f6;
+      background: linear-gradient(to right, #eff6ff 0%, white 100%);
+    }
+    .submodule-card.running {
+      border-color: #f59e0b;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
   </style>
 </head>
 <body class="bg-gray-50 text-gray-900 min-h-screen">
 
   <div x-data="app()" x-init="init()" x-cloak>
 
-    <!-- Slide-in Results Panel -->
+    <!-- Submodule Overlay Panel (New Flow: RUN → SEE RESULTS → APPROVE) -->
+    <div x-show="submodulePanelOpen" class="fixed inset-0 z-50" @keydown.escape.window="closeSubmodulePanel()">
+      <!-- Backdrop -->
+      <div class="fixed inset-0 bg-black/30 panel-backdrop"
+           :class="submodulePanelOpen ? 'open' : ''"
+           @click="closeSubmodulePanel()"></div>
+
+      <!-- Panel -->
+      <div class="fixed inset-y-0 left-0 w-full max-w-lg bg-white shadow-2xl slide-panel flex flex-col"
+           :class="submodulePanelOpen ? 'open' : ''">
+
+        <!-- Panel Header -->
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
+          <div class="flex items-center gap-2">
+            <button @click="closeSubmodulePanel()" class="text-gray-400 hover:text-gray-600">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            </button>
+            <div>
+              <h3 class="text-sm font-semibold text-gray-900" x-text="activeSubmodule?.name || 'Submodule'"></h3>
+              <p class="text-[10px] text-gray-500" x-text="activeSubmodule?.description || ''"></p>
+            </div>
+          </div>
+          <button @click="closeSubmodulePanel()" class="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <!-- Panel Content -->
+        <div class="flex-1 overflow-y-auto p-4">
+
+          <!-- State: IDLE (before run) -->
+          <div x-show="submoduleState === 'idle' || submoduleState === 'ready'">
+
+            <!-- Input Data Section -->
+            <div class="mb-4">
+              <p class="text-xs text-gray-600 font-medium mb-2 uppercase">Input data</p>
+              <div class="bg-gray-50 rounded-lg border border-gray-200 p-4">
+
+                <!-- Show existing entity context if available -->
+                <div x-show="entityContext && entityContext.entities?.length > 0" class="mb-3">
+                  <div class="flex items-center gap-2 text-green-700 mb-2">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                    <span class="text-xs font-medium" x-text="entityContext.entities.length + ' entities loaded'"></span>
+                  </div>
+                  <p class="text-[10px] text-gray-500 mb-2" x-text="(entityContext.stats?.by_column?.website || 0) + ' have website (required for this submodule)'"></p>
+                  <div class="flex gap-2">
+                    <button @click="useExistingEntities()" class="text-xs bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded">Use these</button>
+                    <button @click="showUploadForm = true" class="text-xs text-gray-600 hover:text-gray-800 px-3 py-1.5 rounded border border-gray-300 hover:border-gray-400">Upload different</button>
+                  </div>
+                </div>
+
+                <!-- Upload form (shown if no context or user wants to upload different) -->
+                <div x-show="!entityContext || !entityContext.entities?.length || showUploadForm">
+                  <div class="mb-3">
+                    <label class="block text-xs text-gray-600 mb-1">Paste URLs (one per line)</label>
+                    <textarea x-model="submoduleInputUrls" rows="3" placeholder="https://betsson.com&#10;https://evolution.com&#10;https://leovegas.com"
+                      class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm font-mono focus:outline-none focus:border-brand-500"></textarea>
+                  </div>
+                  <div class="text-center text-[10px] text-gray-400 mb-3">— or —</div>
+                  <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-brand-400 transition-colors cursor-pointer"
+                       @click="$refs.csvUploadInput.click()"
+                       @dragover.prevent="$event.target.classList.add('border-brand-500')"
+                       @dragleave="$event.target.classList.remove('border-brand-500')"
+                       @drop.prevent="handleCsvDrop($event)">
+                    <input type="file" x-ref="csvUploadInput" accept=".csv" class="hidden" @change="handleCsvUpload($event)">
+                    <p class="text-xs text-gray-500">Drop CSV here or click to browse</p>
+                    <p class="text-[10px] text-gray-400 mt-1">entities_template.csv format</p>
+                  </div>
+                  <div x-show="uploadedCsvInfo" class="mt-2 flex items-center gap-2 text-green-700 text-xs">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                    <span x-text="uploadedCsvInfo"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Advanced Options (collapsible) -->
+            <div class="mb-4">
+              <button @click="showAdvancedOptions = !showAdvancedOptions"
+                      class="flex items-center gap-2 text-xs text-gray-600 hover:text-gray-800">
+                <span x-text="showAdvancedOptions ? '▼' : '▶'"></span>
+                <span>Advanced options</span>
+              </button>
+              <div x-show="showAdvancedOptions" x-transition class="mt-3 bg-gray-50 rounded-lg border border-gray-200 p-4">
+                <template x-if="activeSubmodule?.id === 'sitemap'">
+                  <div class="space-y-3">
+                    <div>
+                      <label class="block text-xs text-gray-600 mb-1">Sitemap location</label>
+                      <select x-model="submoduleOptions.sitemap_location" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm">
+                        <option value="auto">Auto-detect</option>
+                        <option value="custom">Custom URL</option>
+                      </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <input type="checkbox" x-model="submoduleOptions.include_nested" id="includeNested" class="rounded border-gray-300 text-brand-600">
+                      <label for="includeNested" class="text-xs text-gray-700">Include nested sitemaps</label>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="activeSubmodule?.id === 'navigation'">
+                  <div class="space-y-3">
+                    <div>
+                      <label class="block text-xs text-gray-600 mb-1">Scan areas</label>
+                      <div class="flex flex-wrap gap-2">
+                        <label class="flex items-center gap-1 text-xs"><input type="checkbox" x-model="submoduleOptions.scan_header" class="rounded border-gray-300 text-brand-600"> Header</label>
+                        <label class="flex items-center gap-1 text-xs"><input type="checkbox" x-model="submoduleOptions.scan_footer" class="rounded border-gray-300 text-brand-600"> Footer</label>
+                        <label class="flex items-center gap-1 text-xs"><input type="checkbox" x-model="submoduleOptions.scan_sidebar" class="rounded border-gray-300 text-brand-600"> Sidebar</label>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <input type="checkbox" x-model="submoduleOptions.follow_dropdowns" id="followDropdowns" class="rounded border-gray-300 text-brand-600">
+                      <label for="followDropdowns" class="text-xs text-gray-700">Follow dropdown menus</label>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="activeSubmodule?.id === 'seed-expansion'">
+                  <div class="space-y-3">
+                    <div class="flex items-center gap-2">
+                      <input type="checkbox" x-model="submoduleOptions.same_domain" id="sameDomain" class="rounded border-gray-300 text-brand-600">
+                      <label for="sameDomain" class="text-xs text-gray-700">Same domain only</label>
+                    </div>
+                    <button @click="useCommonSeeds()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded border border-gray-300">
+                      Use common seeds (/about, /products, /news...)
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- State: RUNNING -->
+          <div x-show="submoduleState === 'running'" class="text-center py-8">
+            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600 mb-4"></div>
+            <p class="text-sm text-gray-700">Running <span x-text="activeSubmodule?.name"></span>...</p>
+            <p class="text-xs text-gray-500 mt-1">Processing entities</p>
+          </div>
+
+          <!-- State: COMPLETED (show "See Results" prompt) -->
+          <div x-show="submoduleState === 'completed'" class="text-center py-8">
+            <div class="flex items-center justify-center gap-2 text-green-600 mb-4">
+              <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+            </div>
+            <p class="text-sm font-medium text-gray-900" x-text="'Run complete: ' + (submoduleRunResult?.result_count || 0) + ' URLs found'"></p>
+            <p x-show="submoduleRunResult?.errors?.length > 0" class="text-xs text-yellow-600 mt-1" x-text="submoduleRunResult.errors.length + ' entity/entities had errors'"></p>
+          </div>
+
+          <!-- State: VIEWING (showing results) -->
+          <div x-show="submoduleState === 'viewing'">
+            <div class="mb-4">
+              <div class="flex items-center justify-between mb-2">
+                <p class="text-xs text-gray-600 font-medium uppercase">Results by entity</p>
+                <span class="text-xs text-gray-500" x-text="(submoduleRunResult?.result_count || 0) + ' total URLs'"></span>
+              </div>
+              <div class="space-y-2 max-h-80 overflow-y-auto">
+                <template x-for="(entity, idx) in submoduleRunResult?.entities || []" :key="idx">
+                  <div class="bg-white rounded border p-3"
+                       :class="entity.error ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200'">
+                    <div class="flex items-center justify-between">
+                      <span class="text-xs font-medium text-gray-800" x-text="entity.name"></span>
+                      <span x-show="!entity.error" class="text-xs text-green-600" x-text="entity.url_count + ' URLs'"></span>
+                      <span x-show="entity.error" class="text-xs text-yellow-600" x-text="entity.error"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- URL Preview (sample) -->
+            <div class="mb-4">
+              <p class="text-xs text-gray-600 font-medium uppercase mb-2">Sample URLs</p>
+              <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 max-h-40 overflow-y-auto">
+                <template x-for="(url, idx) in (submoduleRunResult?.sample_urls || []).slice(0, 10)" :key="idx">
+                  <p class="text-[10px] text-gray-600 truncate py-0.5" x-text="url"></p>
+                </template>
+                <p x-show="(submoduleRunResult?.sample_urls || []).length > 10" class="text-[10px] text-gray-400 mt-1" x-text="'... and ' + (submoduleRunResult.result_count - 10) + ' more'"></p>
+              </div>
+            </div>
+          </div>
+
+          <!-- State: APPROVED -->
+          <div x-show="submoduleState === 'approved'" class="text-center py-8">
+            <div class="flex items-center justify-center gap-2 text-green-600 mb-4">
+              <svg class="w-10 h-10" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+            </div>
+            <p class="text-sm font-medium text-green-700">Results Approved</p>
+            <p class="text-xs text-gray-500 mt-1" x-text="(submoduleRunResult?.result_count || 0) + ' URLs saved to discovery pool'"></p>
+          </div>
+
+        </div>
+
+        <!-- Panel Footer with state-based buttons -->
+        <div class="border-t border-gray-200 px-4 py-3 bg-gray-50">
+          <div class="flex items-center justify-end gap-2">
+
+            <!-- IDLE/READY: Show RUN button -->
+            <template x-if="submoduleState === 'idle' || submoduleState === 'ready'">
+              <button @click="runActiveSubmodule()"
+                      :disabled="!canRunSubmodule()"
+                      :class="canRunSubmodule() ? 'bg-brand-600 hover:bg-brand-700' : 'bg-gray-300 cursor-not-allowed'"
+                      class="text-white px-6 py-2 rounded text-sm font-medium">
+                RUN TASK
+              </button>
+            </template>
+
+            <!-- RUNNING: Show loading state -->
+            <template x-if="submoduleState === 'running'">
+              <button disabled class="bg-gray-300 text-white px-6 py-2 rounded text-sm font-medium cursor-not-allowed">
+                Running...
+              </button>
+            </template>
+
+            <!-- COMPLETED: Show SEE RESULTS button -->
+            <template x-if="submoduleState === 'completed'">
+              <button @click="submoduleState = 'viewing'" class="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded text-sm font-medium">
+                SEE RESULTS
+              </button>
+            </template>
+
+            <!-- VIEWING: Show APPROVE button -->
+            <template x-if="submoduleState === 'viewing'">
+              <div class="flex gap-2">
+                <button @click="rejectSubmoduleRun()" class="text-red-600 hover:text-red-800 px-4 py-2 rounded text-sm border border-red-200 hover:border-red-300">
+                  Reject
+                </button>
+                <button @click="approveSubmoduleRun()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded text-sm font-medium">
+                  APPROVE
+                </button>
+              </div>
+            </template>
+
+            <!-- APPROVED: Show Done button -->
+            <template x-if="submoduleState === 'approved'">
+              <button @click="closeSubmodulePanel()" class="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded text-sm font-medium">
+                Done
+              </button>
+            </template>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Legacy Results Panel (kept for backward compatibility) -->
     <div x-show="resultsPanelOpen" class="fixed inset-0 z-50" @keydown.escape.window="resultsPanelOpen = false">
       <!-- Backdrop -->
       <div class="fixed inset-0 bg-black/30 panel-backdrop"
@@ -155,7 +419,7 @@
       <div class="max-w-7xl mx-auto flex items-center justify-between">
         <div class="flex items-center gap-3">
           <h1 class="text-lg font-bold text-gray-900">Content Pipeline</h1>
-          <span class="text-xs bg-brand-600 text-white px-2 py-0.5 rounded-full">v2.0</span>
+          <span class="text-xs bg-brand-600 text-white px-2 py-0.5 rounded-full">v3.0</span>
         </div>
         <div class="flex items-center gap-4">
           <label class="flex items-center gap-2 text-xs text-gray-500 cursor-pointer select-none">
@@ -254,476 +518,286 @@
                     <div x-show="i === 0">
                       <div class="space-y-4">
                         <!-- Project Selection: New or Existing -->
-                        <div class="flex items-center gap-4 mb-4">
+                        <div class="flex items-center gap-6 mb-4">
                           <label class="flex items-center gap-2 cursor-pointer">
-                            <input type="radio" name="projectMode" value="new" x-model="step0Mode" class="text-brand-600">
+                            <input type="radio" name="projectMode" value="new" x-model="step0Mode" class="w-4 h-4 text-brand-600 border-gray-300 focus:ring-brand-500">
                             <span class="text-sm text-gray-700">New Project</span>
                           </label>
                           <label class="flex items-center gap-2 cursor-pointer">
-                            <input type="radio" name="projectMode" value="existing" x-model="step0Mode" class="text-brand-600">
+                            <input type="radio" name="projectMode" value="existing" x-model="step0Mode" class="w-4 h-4 text-brand-600 border-gray-300 focus:ring-brand-500">
                             <span class="text-sm text-gray-700">Existing Project</span>
                           </label>
                         </div>
 
-                        <!-- New Project Name -->
-                        <div x-show="step0Mode === 'new'">
-                          <label class="block text-xs text-gray-600 mb-1">Project Name</label>
-                          <div class="flex gap-2">
-                            <input x-model="step0NewProjectName" type="text" placeholder="e.g. Affiliates Q1 2026, Nordic Operators..."
-                              class="flex-1 bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm focus:outline-none focus:border-brand-500"
-                              @keyup.enter="createAndSelectProject()">
-                            <button @click="createAndSelectProject()"
-                              class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded text-sm font-medium">
-                              Create
-                            </button>
+                        <!-- New Project Form -->
+                        <div x-show="step0Mode === 'new'" class="space-y-4">
+                          <div>
+                            <label class="block text-xs text-gray-600 mb-1 font-medium">Project Name <span class="text-red-500">*</span></label>
+                            <input x-model="step0NewProjectName" type="text" placeholder="e.g. Nordic Operators Q1 2026"
+                              class="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
                           </div>
-                          <p class="text-[10px] text-gray-400 mt-1">Create a new project, then add input data in Step 1</p>
+
+                          <div>
+                            <label class="block text-xs text-gray-600 mb-1 font-medium">Description</label>
+                            <textarea x-model="step0ProjectDescription" rows="2" placeholder="Brief description of this project's purpose..."
+                              class="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500"></textarea>
+                          </div>
+
+                          <div>
+                            <label class="block text-xs text-gray-600 mb-1 font-medium">Template</label>
+                            <select x-model="step0SelectedTemplateId"
+                              class="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                              <option value="">None (start from scratch)</option>
+                              <template x-for="tpl in templates" :key="tpl.id">
+                                <option :value="tpl.id" x-text="tpl.name + ' (' + tpl.stages.length + ' steps)'"></option>
+                              </template>
+                            </select>
+                            <p class="text-[10px] text-gray-400 mt-1">Templates pre-configure step settings for common workflows</p>
+                          </div>
+
+                          <button @click="createAndSelectProject()"
+                            :disabled="!step0NewProjectName.trim()"
+                            :class="step0NewProjectName.trim() ? 'bg-brand-600 hover:bg-brand-700' : 'bg-gray-300 cursor-not-allowed'"
+                            class="w-full text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+                            Create Project
+                          </button>
                         </div>
 
                         <!-- Existing Project Dropdown -->
-                        <div x-show="step0Mode === 'existing'">
-                          <label class="block text-xs text-gray-600 mb-1">Select Project</label>
-                          <select x-model="step0SelectedProjectId" @change="selectProjectById(step0SelectedProjectId)"
-                            class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm focus:outline-none focus:border-brand-500">
-                            <option value="">-- Choose a project --</option>
-                            <template x-for="p in projects.filter(p => p.status !== 'archived')" :key="p.id">
-                              <option :value="p.id" x-text="p.name + ' (' + (p.input_count || 0) + ' items)'"></option>
-                            </template>
-                          </select>
-                          <p class="text-[10px] text-gray-400 mt-1">Continue working on an existing project</p>
+                        <div x-show="step0Mode === 'existing'" class="space-y-4">
+                          <div>
+                            <label class="block text-xs text-gray-600 mb-1 font-medium">Select Project</label>
+                            <select x-model="step0SelectedProjectId" @change="selectProjectById(step0SelectedProjectId)"
+                              class="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                              <option value="">-- Choose a project --</option>
+                              <template x-for="p in projects.filter(p => p.status !== 'archived')" :key="p.id">
+                                <option :value="p.id" x-text="p.name + ' (' + (p.input_count || 0) + ' items)'"></option>
+                              </template>
+                            </select>
+                          </div>
+                          <p class="text-[10px] text-gray-400">Continue working on an existing project</p>
                         </div>
 
                         <!-- Current Project Info (shown when a project is selected) -->
-                        <div x-show="selectedProject" class="bg-green-50 border border-green-200 rounded-lg p-3 mt-4">
+                        <div x-show="selectedProject" class="bg-green-50 border border-green-200 rounded-lg p-4 mt-4">
                           <div class="flex items-center justify-between">
                             <div>
                               <p class="text-sm font-medium text-green-800">Active Project: <span x-text="selectedProject?.name"></span></p>
-                              <p class="text-xs text-green-600" x-text="(selectedProject?.input_count || 0) + ' items • ' + (selectedProject?.status || 'created')"></p>
+                              <p class="text-xs text-green-600 mt-1" x-text="(selectedProject?.input_count || 0) + ' items • ' + (selectedProject?.status || 'created')"></p>
+                              <p x-show="selectedProject?.description" class="text-xs text-gray-600 mt-1" x-text="selectedProject?.description"></p>
                             </div>
-                            <span class="text-green-500 text-lg">✓</span>
+                            <div class="flex items-center gap-2">
+                              <span class="text-green-500 text-xl">✓</span>
+                            </div>
                           </div>
                         </div>
 
                         <!-- No Project Selected Warning -->
-                        <div x-show="!selectedProject" class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mt-4">
-                          <p class="text-sm text-yellow-700">Create or select a project above to continue to the next steps.</p>
+                        <div x-show="!selectedProject" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mt-4">
+                          <div class="flex items-center gap-2">
+                            <svg class="w-5 h-5 text-yellow-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                            <p class="text-sm text-yellow-700">Create or select a project above to continue to the next steps.</p>
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    <!-- STEP 1: Input Specification -->
-                    <div x-show="i === 1" x-data="{
-                      openInput: null,
-                      inputs: {
-                        urls: { added: true, summary: '1 URL added' },
-                        docs: { added: false, summary: '' },
-                        images: { added: false, summary: '' },
-                        media: { added: false, summary: '' },
-                        text: { added: false, summary: '' },
-                        csv: { added: false, summary: '' }
-                      },
-                      toggleInput(key) { this.openInput = this.openInput === key ? null : key; },
-                      saveInput(key, summary) { this.inputs[key].added = true; this.inputs[key].summary = summary; this.openInput = null; },
-                      clearInput(key) { this.inputs[key].added = false; this.inputs[key].summary = ''; }
-                    }">
-                      <!-- Input Sources -->
-                      <div class="mb-4">
-                        <p class="text-xs text-gray-500 mb-2">Input Sources — What are you feeding the pipeline?</p>
-                        <div class="space-y-1">
-
-                          <!-- URLs row -->
-                          <div class="rounded border" :class="inputs.urls.added ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
-                            <div class="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none" @click="toggleInput('urls')">
-                              <div class="flex items-center gap-2">
-                                <span class="text-sm" x-text="openInput === 'urls' ? '&#9660;' : '&#9654;'"></span>
-                                <span class="text-xs font-medium text-gray-700">URLs</span>
-                                <span x-show="inputs.urls.added" class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded" x-text="inputs.urls.summary"></span>
-                              </div>
-                              <button x-show="inputs.urls.added" @click.stop="clearInput('urls')" class="text-[10px] text-gray-600 hover:text-red-400">clear</button>
-                            </div>
-                            <div x-show="openInput === 'urls'" x-transition class="px-3 pb-3 border-t border-gray-200">
-                              <label class="block text-xs text-gray-500 mt-2 mb-1">One URL per line</label>
-                              <textarea rows="3" :value="selectedProject?.source || ''" placeholder="https://example.com&#10;https://example.com/about&#10;https://example.com/products" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm font-mono"></textarea>
-                              <button @click="saveInput('urls', '3 URLs added')" class="mt-2 bg-brand-600 hover:bg-brand-700 text-white px-3 py-1 rounded text-xs">Save</button>
-                            </div>
-                          </div>
-
-                          <!-- Documents row -->
-                          <div class="rounded border" :class="inputs.docs.added ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
-                            <div class="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none" @click="toggleInput('docs')">
-                              <div class="flex items-center gap-2">
-                                <span class="text-sm" x-text="openInput === 'docs' ? '&#9660;' : '&#9654;'"></span>
-                                <span class="text-xs font-medium text-gray-700">Documents / Files</span>
-                                <span x-show="inputs.docs.added" class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded" x-text="inputs.docs.summary"></span>
-                              </div>
-                              <button x-show="inputs.docs.added" @click.stop="clearInput('docs')" class="text-[10px] text-gray-600 hover:text-red-400">clear</button>
-                            </div>
-                            <div x-show="openInput === 'docs'" x-transition class="px-3 pb-3 border-t border-gray-200">
-                              <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-500 transition-colors cursor-pointer mt-2">
-                                <p class="text-xs text-gray-400">Drop files here or click to browse</p>
-                                <p class="text-[10px] text-gray-600 mt-1">PDF, DOCX, TXT, XLSX</p>
-                              </div>
-                              <button @click="saveInput('docs', '2 files uploaded')" class="mt-2 bg-brand-600 hover:bg-brand-700 text-white px-3 py-1 rounded text-xs">Save</button>
-                            </div>
-                          </div>
-
-                          <!-- Images row -->
-                          <div class="rounded border" :class="inputs.images.added ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
-                            <div class="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none" @click="toggleInput('images')">
-                              <div class="flex items-center gap-2">
-                                <span class="text-sm" x-text="openInput === 'images' ? '&#9660;' : '&#9654;'"></span>
-                                <span class="text-xs font-medium text-gray-700">Images</span>
-                                <span x-show="inputs.images.added" class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded" x-text="inputs.images.summary"></span>
-                              </div>
-                              <button x-show="inputs.images.added" @click.stop="clearInput('images')" class="text-[10px] text-gray-600 hover:text-red-400">clear</button>
-                            </div>
-                            <div x-show="openInput === 'images'" x-transition class="px-3 pb-3 border-t border-gray-200">
-                              <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-500 transition-colors cursor-pointer mt-2">
-                                <p class="text-xs text-gray-400">Drop images here or click to browse</p>
-                                <p class="text-[10px] text-gray-600 mt-1">PNG, JPG, SVG, WebP</p>
-                              </div>
-                              <button @click="saveInput('images', '3 images uploaded')" class="mt-2 bg-brand-600 hover:bg-brand-700 text-white px-3 py-1 rounded text-xs">Save</button>
-                            </div>
-                          </div>
-
-                          <!-- Video / Audio row -->
-                          <div class="rounded border" :class="inputs.media.added ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
-                            <div class="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none" @click="toggleInput('media')">
-                              <div class="flex items-center gap-2">
-                                <span class="text-sm" x-text="openInput === 'media' ? '&#9660;' : '&#9654;'"></span>
-                                <span class="text-xs font-medium text-gray-700">Video / Audio</span>
-                                <span x-show="inputs.media.added" class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded" x-text="inputs.media.summary"></span>
-                              </div>
-                              <button x-show="inputs.media.added" @click.stop="clearInput('media')" class="text-[10px] text-gray-600 hover:text-red-400">clear</button>
-                            </div>
-                            <div x-show="openInput === 'media'" x-transition class="px-3 pb-3 border-t border-gray-200">
-                              <label class="block text-xs text-gray-500 mt-2 mb-1">Media URLs (YouTube, Spotify, RSS, direct links)</label>
-                              <textarea rows="2" placeholder="https://open.spotify.com/episode/...&#10;https://youtube.com/watch?v=..." class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm font-mono mb-2"></textarea>
-                              <div class="border-2 border-dashed border-gray-300 rounded-lg p-3 text-center hover:border-gray-500 transition-colors cursor-pointer">
-                                <p class="text-xs text-gray-400">Or drop media files (MP3, MP4, WAV, M4A)</p>
-                              </div>
-                              <button @click="saveInput('media', '1 podcast URL')" class="mt-2 bg-brand-600 hover:bg-brand-700 text-white px-3 py-1 rounded text-xs">Save</button>
-                            </div>
-                          </div>
-
-                          <!-- Manual Text row -->
-                          <div class="rounded border" :class="inputs.text.added ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
-                            <div class="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none" @click="toggleInput('text')">
-                              <div class="flex items-center gap-2">
-                                <span class="text-sm" x-text="openInput === 'text' ? '&#9660;' : '&#9654;'"></span>
-                                <span class="text-xs font-medium text-gray-700">Manual Text</span>
-                                <span x-show="inputs.text.added" class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded" x-text="inputs.text.summary"></span>
-                              </div>
-                              <button x-show="inputs.text.added" @click.stop="clearInput('text')" class="text-[10px] text-gray-600 hover:text-red-400">clear</button>
-                            </div>
-                            <div x-show="openInput === 'text'" x-transition class="px-3 pb-3 border-t border-gray-200">
-                              <label class="block text-xs text-gray-500 mt-2 mb-1">Paste or type content</label>
-                              <textarea rows="4" placeholder="Notes, briefs, outlines, or any raw text..." class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></textarea>
-                              <button @click="saveInput('text', '1 text block')" class="mt-2 bg-brand-600 hover:bg-brand-700 text-white px-3 py-1 rounded text-xs">Save</button>
-                            </div>
-                          </div>
-
-                          <!-- CSV / Batch row -->
-                          <div class="rounded border" :class="inputs.csv.added ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
-                            <div class="flex items-center justify-between px-3 py-2.5 cursor-pointer select-none" @click="toggleInput('csv')">
-                              <div class="flex items-center gap-2">
-                                <span class="text-sm" x-text="openInput === 'csv' ? '&#9660;' : '&#9654;'"></span>
-                                <span class="text-xs font-medium text-gray-700">CSV / Batch</span>
-                                <span x-show="inputs.csv.added" class="text-[10px] text-green-700 bg-green-100 px-1.5 py-0.5 rounded" x-text="inputs.csv.summary"></span>
-                              </div>
-                              <button x-show="inputs.csv.added" @click.stop="clearInput('csv')" class="text-[10px] text-gray-600 hover:text-red-400">clear</button>
-                            </div>
-                            <div x-show="openInput === 'csv'" x-transition class="px-3 pb-3 border-t border-gray-200">
-                              <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-500 transition-colors cursor-pointer mt-2">
-                                <p class="text-xs text-gray-400">Drop CSV/XLSX file here or click to browse</p>
-                              </div>
-                              <p class="text-[10px] text-gray-600 mt-1">Expected columns: name, url (optional), topic (optional), category (optional)</p>
-                              <button @click="saveInput('csv', '1 CSV file (47 rows)')" class="mt-2 bg-brand-600 hover:bg-brand-700 text-white px-3 py-1 rounded text-xs">Save</button>
-                            </div>
-                          </div>
-
-                        </div>
+                    <!-- STEP 1: Discovery (Category Cards with Submodules) -->
+                    <div x-show="i === 1">
+                      <div class="bg-blue-50 rounded-lg p-3 border border-blue-200 mb-4">
+                        <p class="text-xs text-blue-700 font-medium mb-1">URL Discovery</p>
+                        <p class="text-xs text-gray-600">Select source categories and run submodules to discover URLs. Each submodule can be run, reviewed, and approved independently.</p>
                       </div>
 
-                      <!-- Output Intent -->
-                      <div class="mb-4">
-                        <p class="text-xs text-gray-500 mb-2">Output Intent — What do you want to produce?</p>
-                        <select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm">
-                          <option value="article">Article / News piece</option>
-                          <option value="profile">Company Profile</option>
-                          <option value="summary">Summary / Digest</option>
-                          <option value="faq">FAQ Content</option>
-                          <option value="podcast">Podcast Page / Show Notes</option>
-                          <option value="research">Research Report</option>
-                          <option value="competitor">Competitor Analysis</option>
-                          <option value="custom">Custom (define in Step 6)</option>
-                        </select>
-                      </div>
-
-                      <!-- Context Narrowing -->
-                      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                          <label class="block text-xs text-gray-500 mb-1">Geography</label>
-                          <select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm">
-                            <option>Global</option><option>Europe</option><option>Nordic</option><option>UK</option><option>US</option><option>Asia Pacific</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label class="block text-xs text-gray-500 mb-1">Language</label>
-                          <select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm">
-                            <option>English</option><option>Swedish</option><option>German</option><option>Spanish</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label class="block text-xs text-gray-500 mb-1">Freshness</label>
-                          <select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm">
-                            <option>Any</option><option>Last 30 days</option><option>Last 90 days</option><option>Last year</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- STEP 2: Discovery & Enrichment (Card-Based Sources) -->
-                    <div x-show="i === 2" x-data="{
-                      expandedSource: null,
-                      sources: {
-                        website: { enabled: true, label: 'Website', icon: '🌐', submodules: [
-                          { id: 'sitemap', name: 'Sitemap', enabled: true, cost: 'cheap', description: 'Parse sitemap.xml', lastResult: '12 URLs' },
-                          { id: 'navigation', name: 'Navigation', enabled: true, cost: 'cheap', description: 'Extract nav links', lastResult: '8 URLs' },
-                          { id: 'seed-expansion', name: 'Seed Expansion', enabled: true, cost: 'cheap', description: 'Expand from seed URLs', lastResult: '5 URLs' }
-                        ]},
-                        news: { enabled: true, label: 'News', icon: '📰', submodules: [
-                          { id: 'rss-feed', name: 'RSS Feeds', enabled: true, cost: 'cheap', description: 'Parse RSS/Atom feeds', lastResult: '15 URLs' },
-                          { id: 'search-news', name: 'News Search', enabled: false, cost: 'medium', description: 'Search news APIs', lastResult: null }
-                        ]},
-                        linkedin: { enabled: false, label: 'LinkedIn', icon: '💼', submodules: [
-                          { id: 'linkedin-company', name: 'Company Page', enabled: false, cost: 'medium', description: 'Scrape company profile', lastResult: null },
-                          { id: 'linkedin-posts', name: 'Posts', enabled: false, cost: 'medium', description: 'Fetch recent posts', lastResult: null }
-                        ]},
-                        youtube: { enabled: true, label: 'YouTube', icon: '🎬', submodules: [
-                          { id: 'youtube-channel', name: 'Channel Videos', enabled: true, cost: 'cheap', description: 'List channel videos', lastResult: '8 URLs' },
-                          { id: 'youtube-search', name: 'YouTube Search', enabled: false, cost: 'medium', description: 'Search for videos', lastResult: null }
-                        ]},
-                        twitter: { enabled: false, label: 'Twitter/X', icon: '🐦', submodules: [
-                          { id: 'twitter-profile', name: 'Profile', enabled: false, cost: 'medium', description: 'Fetch profile & tweets', lastResult: null }
-                        ]},
-                        crunchbase: { enabled: false, label: 'Crunchbase', icon: '📊', submodules: [
-                          { id: 'crunchbase-company', name: 'Company Data', enabled: false, cost: 'expensive', description: 'Funding & company info', lastResult: null }
-                        ]},
-                        search: { enabled: true, label: 'Search', icon: '🔍', submodules: [
-                          { id: 'search-google', name: 'Google Search', enabled: true, cost: 'expensive', description: 'General web search', lastResult: 'Fallback' }
-                        ], isFallback: true }
-                      },
-                      toggleSource(key) { this.sources[key].enabled = !this.sources[key].enabled; },
-                      toggleSubmodule(sourceKey, subId) {
-                        const sub = this.sources[sourceKey].submodules.find(s => s.id === subId);
-                        if (sub) sub.enabled = !sub.enabled;
-                      },
-                      getEnabledCount(source) { return source.submodules.filter(s => s.enabled).length; },
-                      getTotalUrls(source) {
-                        return source.submodules.filter(s => s.enabled && s.lastResult).map(s => parseInt(s.lastResult) || 0).reduce((a,b) => a+b, 0);
-                      },
-                      getCostClass(cost) {
-                        return { cheap: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700', expensive: 'bg-orange-100 text-orange-700' }[cost];
-                      }
-                    }">
-                      <div class="bg-blue-50 rounded p-3 border border-blue-200 mb-4">
-                        <p class="text-xs text-blue-700 font-medium mb-1">Multi-Source Discovery</p>
-                        <p class="text-xs text-gray-600">Enable source types and configure submodules for each. Cheap sources run first in parallel; expensive sources run as fallback if needed.</p>
-                      </div>
-
-                      <!-- Source Cards Grid -->
-                      <p class="text-xs text-gray-500 mb-3">Source Types (click to configure)</p>
-                      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                        <template x-for="(source, key) in sources" :key="key">
-                          <div class="rounded-lg border transition-all cursor-pointer"
-                               :class="source.enabled ? 'bg-white border-brand-300 shadow-sm' : 'bg-gray-50 border-gray-200 opacity-60'"
-                               @click="expandedSource = expandedSource === key ? null : key">
-                            <div class="p-3">
+                      <!-- Source Category Cards -->
+                      <p class="text-xs text-gray-500 mb-3 font-medium uppercase">Source Categories</p>
+                      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                        <template x-for="(cat, catKey) in discoveryCategories" :key="catKey">
+                          <div class="rounded-lg border-2 transition-all cursor-pointer submodule-card"
+                               :class="{
+                                 'border-brand-400 bg-white shadow-md': cat.expanded,
+                                 'border-gray-200 bg-gray-50 hover:border-gray-300': !cat.expanded && !cat.enabled,
+                                 'border-brand-200 bg-white': !cat.expanded && cat.enabled
+                               }"
+                               @click="toggleDiscoveryCategory(catKey)">
+                            <div class="p-4">
                               <div class="flex items-center justify-between mb-2">
-                                <span class="text-lg" x-text="source.icon"></span>
-                                <button @click.stop="toggleSource(key)"
-                                        class="w-8 h-4 rounded-full relative transition-colors"
-                                        :class="source.enabled ? 'bg-brand-500' : 'bg-gray-300'">
-                                  <span class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
-                                        :class="source.enabled ? 'right-0.5' : 'left-0.5'"></span>
+                                <span class="text-2xl" x-text="cat.icon"></span>
+                                <button @click.stop="cat.enabled = !cat.enabled"
+                                        class="w-10 h-5 rounded-full relative transition-colors"
+                                        :class="cat.enabled ? 'bg-brand-500' : 'bg-gray-300'">
+                                  <span class="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all"
+                                        :class="cat.enabled ? 'right-0.5' : 'left-0.5'"></span>
                                 </button>
                               </div>
-                              <p class="text-sm font-medium text-gray-800" x-text="source.label"></p>
+                              <p class="text-sm font-semibold text-gray-800" x-text="cat.label"></p>
                               <p class="text-[10px] text-gray-500 mt-1">
-                                <span x-text="getEnabledCount(source)"></span>/<span x-text="source.submodules.length"></span> submodules
-                                <span x-show="source.enabled && getTotalUrls(source) > 0" class="text-green-600 ml-1" x-text="'• ' + getTotalUrls(source) + ' URLs'"></span>
+                                <span x-text="getApprovedSubmoduleCount(cat) + '/' + cat.submodules.length"></span> approved
+                                <span x-show="getCategoryUrlCount(cat) > 0" class="text-green-600 ml-1" x-text="'• ' + getCategoryUrlCount(cat) + ' URLs'"></span>
                               </p>
-                              <p x-show="source.isFallback" class="text-[10px] text-yellow-600 mt-1">Fallback only</p>
-                            </div>
-
-                            <!-- Expanded Submodule Config -->
-                            <div x-show="expandedSource === key" x-transition @click.stop class="border-t border-gray-200 p-3 bg-gray-50">
-                              <p class="text-[10px] text-gray-500 mb-2 font-medium uppercase">Submodules</p>
-                              <div class="space-y-2">
-                                <template x-for="sub in source.submodules" :key="sub.id">
-                                  <div class="flex items-center justify-between bg-white rounded p-2 border hover:bg-gray-50 transition-colors group"
-                                       :class="sub.enabled ? 'border-brand-200' : 'border-gray-200 opacity-60'">
-                                    <div class="flex items-center gap-2 min-w-0">
-                                      <input type="checkbox" :checked="sub.enabled" @click.stop @change="toggleSubmodule(key, sub.id)"
-                                             class="rounded border-gray-300 text-brand-600">
-                                      <div class="min-w-0">
-                                        <p class="text-xs font-medium text-gray-700 truncate" x-text="sub.name"></p>
-                                        <p class="text-[10px] text-gray-400 truncate" x-text="sub.description"></p>
-                                      </div>
-                                    </div>
-                                    <div class="flex items-center gap-1 flex-shrink-0 ml-2">
-                                      <span :class="getCostClass(sub.cost)" class="text-[8px] px-1.5 py-0.5 rounded" x-text="sub.cost"></span>
-                                      <!-- Run button -->
-                                      <button x-show="sub.enabled && !$root.useMockData && $root.currentRunId"
-                                              @click.stop="$root.runSubmodule('discovery', sub.id, source)"
-                                              :disabled="$root.runningSubmodules[sub.id]"
-                                              class="text-[10px] px-2 py-0.5 rounded border transition-colors"
-                                              :class="$root.runningSubmodules[sub.id] ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-brand-50 text-brand-600 border-brand-200 hover:bg-brand-100'">
-                                        <span x-show="!$root.runningSubmodules[sub.id]">Run</span>
-                                        <span x-show="$root.runningSubmodules[sub.id]">...</span>
-                                      </button>
-                                      <!-- Results button -->
-                                      <button x-show="sub.lastResult || $root.submoduleResults[sub.id]"
-                                              @click.stop="$root.openSubmoduleResults(sub, source, 'discovery')"
-                                              class="text-[10px] text-brand-600 hover:text-brand-800 px-1">
-                                        <span x-text="$root.submoduleResults[sub.id]?.result_count || sub.lastResult"></span> →
-                                      </button>
-                                      <!-- Mock mode view -->
-                                      <span x-show="$root.useMockData && sub.lastResult" class="text-[10px] text-gray-500 cursor-pointer" @click="$root.openResultsPanel(sub, source)" x-text="sub.lastResult"></span>
-                                    </div>
-                                  </div>
-                                </template>
-                              </div>
                             </div>
                           </div>
                         </template>
                       </div>
 
-                      <!-- Global Settings -->
-                      <div class="grid grid-cols-3 gap-4 mb-4">
-                        <div><label class="block text-xs text-gray-500 mb-1">Min URLs per entity</label><input type="number" value="10" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></div>
-                        <div><label class="block text-xs text-gray-500 mb-1">Max URLs per entity</label><input type="number" value="100" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"></div>
-                        <div><label class="block text-xs text-gray-500 mb-1">Reuse cached</label><select class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm"><option>Yes (if fresh)</option><option>No (re-discover)</option></select></div>
-                      </div>
+                      <!-- Expanded Category: Submodule List -->
+                      <template x-for="(cat, catKey) in discoveryCategories" :key="'sub-' + catKey">
+                        <div x-show="cat.expanded" x-transition class="mb-6">
+                          <div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                            <!-- Category Header -->
+                            <div class="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
+                              <div class="flex items-center gap-2">
+                                <span class="text-xl" x-text="cat.icon"></span>
+                                <div>
+                                  <h4 class="text-sm font-semibold text-gray-800" x-text="cat.label + ' Submodules'"></h4>
+                                  <p class="text-[10px] text-gray-500" x-text="cat.description"></p>
+                                </div>
+                              </div>
+                              <button @click="cat.expanded = false" class="text-gray-400 hover:text-gray-600 p-1">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                              </button>
+                            </div>
 
-                      <!-- Results Summary -->
-                      <div class="bg-gray-50 rounded p-3 border border-gray-200">
-                        <p class="text-xs text-gray-500 mb-2">Results Summary (mock)</p>
-                        <div class="flex flex-wrap gap-3 text-sm">
-                          <span class="text-gray-700"><span class="font-medium">48</span> total URLs</span>
-                          <span class="text-green-600">Website: 25</span>
-                          <span class="text-green-600">News: 15</span>
-                          <span class="text-green-600">YouTube: 8</span>
-                          <span class="text-gray-400">LinkedIn: —</span>
+                            <!-- Submodule Cards -->
+                            <div class="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                              <template x-for="sub in cat.submodules" :key="sub.id">
+                                <div class="rounded-lg border-2 p-4 transition-all cursor-pointer submodule-card hover:shadow-md"
+                                     :class="{
+                                       'approved border-green-400 bg-green-50': sub.status === 'approved',
+                                       'has-results border-blue-400 bg-blue-50': sub.status === 'has_results',
+                                       'running border-yellow-400': sub.status === 'running',
+                                       'border-gray-200 bg-white hover:border-brand-300': sub.status === 'pending' || !sub.status
+                                     }"
+                                     @click="openSubmodule(sub, cat)">
+                                  <div class="flex items-start justify-between mb-2">
+                                    <div>
+                                      <p class="text-sm font-medium text-gray-800" x-text="sub.name"></p>
+                                      <p class="text-[10px] text-gray-500" x-text="sub.description"></p>
+                                    </div>
+                                    <span :class="{
+                                            'bg-green-100 text-green-700': sub.cost === 'cheap',
+                                            'bg-yellow-100 text-yellow-700': sub.cost === 'medium',
+                                            'bg-orange-100 text-orange-700': sub.cost === 'expensive'
+                                          }"
+                                          class="text-[8px] px-1.5 py-0.5 rounded font-medium" x-text="sub.cost"></span>
+                                  </div>
+
+                                  <!-- Status indicator -->
+                                  <div class="flex items-center justify-between mt-3">
+                                    <span x-show="sub.status === 'approved'" class="text-xs text-green-600 flex items-center gap-1">
+                                      <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                                      <span x-text="(sub.result_count || 0) + ' URLs approved'"></span>
+                                    </span>
+                                    <span x-show="sub.status === 'has_results'" class="text-xs text-blue-600 flex items-center gap-1">
+                                      <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
+                                      <span x-text="(sub.result_count || 0) + ' URLs found'"></span>
+                                    </span>
+                                    <span x-show="sub.status === 'running'" class="text-xs text-yellow-600">Running...</span>
+                                    <span x-show="!sub.status || sub.status === 'pending'" class="text-xs text-gray-400">Not run</span>
+
+                                    <span class="text-[10px] text-brand-600 font-medium">Open →</span>
+                                  </div>
+                                </div>
+                              </template>
+                            </div>
+                          </div>
+                        </div>
+                      </template>
+
+                      <!-- Discovery Summary -->
+                      <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <div class="flex items-center justify-between mb-2">
+                          <p class="text-xs text-gray-600 font-medium uppercase">Discovery Summary</p>
+                          <span class="text-xs text-gray-500" x-text="getTotalApprovedSubmodules() + ' submodules approved'"></span>
+                        </div>
+                        <div class="flex flex-wrap gap-4 text-sm">
+                          <span class="text-gray-700"><span class="font-semibold text-lg" x-text="getTotalDiscoveredUrls()"></span> total URLs</span>
+                          <template x-for="(cat, catKey) in discoveryCategories" :key="'sum-' + catKey">
+                            <span x-show="getCategoryUrlCount(cat) > 0" class="text-green-600" x-text="cat.label + ': ' + getCategoryUrlCount(cat)"></span>
+                          </template>
                         </div>
                       </div>
                     </div>
 
-                    <!-- STEP 3: Source Validation (Card-Based Validators) -->
-                    <div x-show="i === 3" x-data="{
-                      expandedValidator: null,
-                      validators: {
-                        trust: { enabled: true, label: 'Trust & Authority', icon: '🛡️', submodules: [
-                          { id: 'domain-authority', name: 'Domain Authority', enabled: true, cost: 'cheap', description: 'Check DA score (min: 10)', config: { min: 10 }, lastResult: '42 passed' },
-                          { id: 'trust-tier', name: 'Trust Tier', enabled: true, cost: 'cheap', description: 'Whitelist/tier check', config: { tier: 'any' }, lastResult: '48 passed' },
-                          { id: 'ssl-check', name: 'SSL Certificate', enabled: false, cost: 'cheap', description: 'Require valid HTTPS', lastResult: null }
-                        ]},
-                        policy: { enabled: true, label: 'Policy & Compliance', icon: '📋', submodules: [
-                          { id: 'blocked-domains', name: 'Blocked Domains', enabled: true, cost: 'cheap', description: 'Filter blocked sites', config: { list: [] }, lastResult: '2 blocked' },
-                          { id: 'robots-txt', name: 'Robots.txt', enabled: true, cost: 'cheap', description: 'Respect crawl rules', lastResult: '1 blocked' },
-                          { id: 'paywall-detect', name: 'Paywall Detection', enabled: false, cost: 'medium', description: 'Skip paywalled content', lastResult: null }
-                        ]},
-                        content: { enabled: true, label: 'Content Quality', icon: '✅', submodules: [
-                          { id: 'language-check', name: 'Language Filter', enabled: true, cost: 'cheap', description: 'Match required language', config: { lang: 'en' }, lastResult: '46 passed' },
-                          { id: 'freshness', name: 'Freshness Check', enabled: false, cost: 'cheap', description: 'Filter by publish date', config: { maxAge: '365d' }, lastResult: null },
-                          { id: 'relevance-score', name: 'Relevance Score', enabled: true, cost: 'medium', description: 'AI relevance check', lastResult: '40 relevant' }
-                        ]},
-                        technical: { enabled: false, label: 'Technical', icon: '⚙️', submodules: [
-                          { id: 'response-time', name: 'Response Time', enabled: false, cost: 'cheap', description: 'Max load time (5s)', lastResult: null },
-                          { id: 'content-type', name: 'Content Type', enabled: false, cost: 'cheap', description: 'HTML only / allow PDF', lastResult: null }
-                        ]}
-                      },
-                      toggleValidator(key) { this.validators[key].enabled = !this.validators[key].enabled; },
-                      toggleSubmodule(valKey, subId) {
-                        const sub = this.validators[valKey].submodules.find(s => s.id === subId);
-                        if (sub) sub.enabled = !sub.enabled;
-                      },
-                      getEnabledCount(val) { return val.submodules.filter(s => s.enabled).length; },
-                      getCostClass(cost) {
-                        return { cheap: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700', expensive: 'bg-orange-100 text-orange-700' }[cost];
-                      }
-                    }">
-                      <div class="bg-orange-50 rounded p-3 border border-orange-200 mb-4">
-                        <p class="text-xs text-orange-700 font-medium mb-1">Filter Step</p>
-                        <p class="text-xs text-gray-600">URLs that fail validation are marked <code class="bg-orange-100 px-1 rounded">filtered_step3</code>. Metadata persists; body purged after 7 days.</p>
+                    <!-- STEP 2: Validation & Dedup -->
+                    <div x-show="i === 2">
+                      <div class="bg-orange-50 rounded-lg p-3 border border-orange-200 mb-4">
+                        <p class="text-xs text-orange-700 font-medium mb-1">Validation & Deduplication</p>
+                        <p class="text-xs text-gray-600">Filter discovered URLs by trust, authority, and compliance. Remove duplicate URLs and mark filtered content.</p>
                       </div>
 
-                      <!-- Validator Cards Grid -->
-                      <p class="text-xs text-gray-500 mb-3">Validation Rules (click to configure)</p>
-                      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                        <template x-for="(val, key) in validators" :key="key">
-                          <div class="rounded-lg border transition-all cursor-pointer"
-                               :class="val.enabled ? 'bg-white border-brand-300 shadow-sm' : 'bg-gray-50 border-gray-200 opacity-60'"
-                               @click="expandedValidator = expandedValidator === key ? null : key">
-                            <div class="p-3">
-                              <div class="flex items-center justify-between mb-2">
-                                <span class="text-lg" x-text="val.icon"></span>
-                                <button @click.stop="toggleValidator(key)"
-                                        class="w-8 h-4 rounded-full relative transition-colors"
-                                        :class="val.enabled ? 'bg-brand-500' : 'bg-gray-300'">
-                                  <span class="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
-                                        :class="val.enabled ? 'right-0.5' : 'left-0.5'"></span>
-                                </button>
-                              </div>
-                              <p class="text-sm font-medium text-gray-800" x-text="val.label"></p>
-                              <p class="text-[10px] text-gray-500 mt-1">
-                                <span x-text="getEnabledCount(val)"></span>/<span x-text="val.submodules.length"></span> checks active
-                              </p>
-                            </div>
+                      <!-- Input from Step 1 -->
+                      <div class="bg-gray-50 rounded-lg p-4 border border-gray-200 mb-4">
+                        <div class="flex items-center justify-between mb-2">
+                          <p class="text-xs text-gray-600 font-medium">Input from Discovery (Step 1)</p>
+                          <span class="text-xs text-green-600" x-text="getTotalDiscoveredUrls() + ' URLs'"></span>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                          <template x-for="(cat, catKey) in discoveryCategories" :key="'val-' + catKey">
+                            <span x-show="getCategoryUrlCount(cat) > 0" class="text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded" x-text="cat.label + ': ' + getCategoryUrlCount(cat)"></span>
+                          </template>
+                        </div>
+                      </div>
 
-                            <!-- Expanded Submodule Config -->
-                            <div x-show="expandedValidator === key" x-transition @click.stop class="border-t border-gray-200 p-3 bg-gray-50">
-                              <p class="text-[10px] text-gray-500 mb-2 font-medium uppercase">Validation Checks</p>
-                              <div class="space-y-2">
-                                <template x-for="sub in val.submodules" :key="sub.id">
-                                  <div class="flex items-center justify-between bg-white rounded p-2 border cursor-pointer hover:bg-gray-50 transition-colors group"
-                                       :class="sub.enabled ? 'border-brand-200' : 'border-gray-200 opacity-60'"
-                                       @click="$root.openResultsPanel(sub, val)">
-                                    <div class="flex items-center gap-2 min-w-0">
-                                      <input type="checkbox" :checked="sub.enabled" @click.stop @change="toggleSubmodule(key, sub.id)"
-                                             class="rounded border-gray-300 text-brand-600">
-                                      <div class="min-w-0">
-                                        <p class="text-xs font-medium text-gray-700 truncate" x-text="sub.name"></p>
-                                        <p class="text-[10px] text-gray-400 truncate" x-text="sub.description"></p>
-                                      </div>
-                                    </div>
-                                    <div class="flex items-center gap-1 flex-shrink-0 ml-2">
-                                      <span :class="getCostClass(sub.cost)" class="text-[8px] px-1.5 py-0.5 rounded" x-text="sub.cost"></span>
-                                      <span x-show="sub.lastResult" class="text-[10px] text-gray-500 group-hover:hidden" x-text="sub.lastResult"></span>
-                                      <span class="text-[10px] text-brand-500 hidden group-hover:inline">View →</span>
-                                    </div>
-                                  </div>
-                                </template>
-                              </div>
+                      <!-- Validation Rules (simplified) -->
+                      <p class="text-xs text-gray-500 mb-3 font-medium uppercase">Validation Rules</p>
+                      <div class="space-y-2 mb-4">
+                        <div class="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-3">
+                          <div class="flex items-center gap-3">
+                            <input type="checkbox" checked class="rounded border-gray-300 text-brand-600">
+                            <div>
+                              <p class="text-sm font-medium text-gray-800">Deduplication</p>
+                              <p class="text-[10px] text-gray-500">Remove duplicate URLs across sources</p>
                             </div>
                           </div>
-                        </template>
+                          <span class="text-xs text-gray-500">Always enabled</span>
+                        </div>
+                        <div class="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-3">
+                          <div class="flex items-center gap-3">
+                            <input type="checkbox" checked class="rounded border-gray-300 text-brand-600">
+                            <div>
+                              <p class="text-sm font-medium text-gray-800">Domain Authority Check</p>
+                              <p class="text-[10px] text-gray-500">Min DA score: 10</p>
+                            </div>
+                          </div>
+                          <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">cheap</span>
+                        </div>
+                        <div class="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-3">
+                          <div class="flex items-center gap-3">
+                            <input type="checkbox" checked class="rounded border-gray-300 text-brand-600">
+                            <div>
+                              <p class="text-sm font-medium text-gray-800">Blocked Domains</p>
+                              <p class="text-[10px] text-gray-500">Filter known spam/low-quality sites</p>
+                            </div>
+                          </div>
+                          <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">cheap</span>
+                        </div>
+                        <div class="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-3">
+                          <div class="flex items-center gap-3">
+                            <input type="checkbox" class="rounded border-gray-300 text-brand-600">
+                            <div>
+                              <p class="text-sm font-medium text-gray-800">Language Filter</p>
+                              <p class="text-[10px] text-gray-500">Only English content</p>
+                            </div>
+                          </div>
+                          <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">cheap</span>
+                        </div>
                       </div>
 
                       <!-- Results Summary -->
-                      <div class="bg-gray-50 rounded p-3 border border-gray-200">
+                      <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
                         <p class="text-xs text-gray-500 mb-2">Validation Results (mock)</p>
                         <div class="flex flex-wrap gap-4 text-sm">
-                          <span class="text-green-600"><span class="font-medium">40</span> passed</span>
-                          <span class="text-red-600"><span class="font-medium">8</span> rejected</span>
-                          <span class="text-gray-500">83% pass rate</span>
+                          <span class="text-gray-700"><span class="font-semibold">312</span> input URLs</span>
+                          <span class="text-green-600"><span class="font-semibold">285</span> passed</span>
+                          <span class="text-orange-600"><span class="font-semibold">27</span> filtered</span>
+                          <span class="text-gray-400">12 duplicates removed</span>
                         </div>
                       </div>
                     </div>
 
-                    <!-- STEP 4: Content Extraction (Card-Based Extractors) -->
-                    <div x-show="i === 4" x-data="{
+                    <!-- STEP 3: Content Extraction -->
+                    <div x-show="i === 3" x-data="{
                       expandedExtractor: null,
                       extractors: {
                         engines: { enabled: true, label: 'Extraction Engines', icon: '⚡', submodules: [
@@ -835,7 +909,7 @@
                     </div>
 
                     <!-- STEP 5: Filtering & Adaptive Crawl (Card-Based Filters) -->
-                    <div x-show="i === 5" x-data="{
+                    <div x-show="i === 4" x-data="{
                       expandedFilter: null,
                       filters: {
                         dedup: { enabled: true, label: 'Deduplication', icon: '🔄', submodules: [
@@ -939,7 +1013,7 @@
                     </div>
 
                     <!-- STEP 6: Analysis & Generation (Card-Based Generators) -->
-                    <div x-show="i === 6" x-data="{
+                    <div x-show="i === 5" x-data="{
                       expandedGenerator: null,
                       generators: {
                         models: { enabled: true, label: 'AI Models', icon: '🤖', submodules: [
@@ -1055,7 +1129,7 @@
                     </div>
 
                     <!-- STEP 7: Validation & QA (Card-Based QA Checks) -->
-                    <div x-show="i === 7" x-data="{
+                    <div x-show="i === 6" x-data="{
                       expandedQA: null,
                       qaChecks: {
                         accuracy: { enabled: true, label: 'Accuracy', icon: '🔍', submodules: [
@@ -1171,7 +1245,7 @@
                     </div>
 
                     <!-- STEP 8: Routing & Flow (Card-Based Routing Rules) -->
-                    <div x-show="i === 8" x-data="{
+                    <div x-show="i === 7" x-data="{
                       expandedRoute: null,
                       routes: {
                         quality: { enabled: true, label: 'Quality-Based', icon: '📊', submodules: [
@@ -1281,7 +1355,7 @@
                     </div>
 
                     <!-- STEP 9: Output Bundling (Card-Based Output Formats) -->
-                    <div x-show="i === 9" x-data="{
+                    <div x-show="i === 8" x-data="{
                       expandedBundle: null,
                       bundles: {
                         formats: { enabled: true, label: 'Output Formats', icon: '📦', submodules: [
@@ -1394,7 +1468,7 @@
                     </div>
 
                     <!-- STEP 10: Distribution (Card-Based Destinations) -->
-                    <div x-show="i === 10" x-data="{
+                    <div x-show="i === 9" x-data="{
                       expandedDest: null,
                       destinations: {
                         cms: { enabled: true, label: 'CMS', icon: '🌐', submodules: [
@@ -1510,7 +1584,7 @@
                     </div>
 
                     <!-- STEP 11: Review & Triggers (Card-Based Actions) -->
-                    <div x-show="i === 11" x-data="{
+                    <div x-show="i === 10" x-data="{
                       expandedAction: null,
                       reviewDecision: null,
                       actions: {
@@ -1651,6 +1725,12 @@
                     <div class="flex items-center gap-2">
                       <span x-show="!isStepUnlocked(i) && stepStates[i]?.status !== 'completed' && stepStates[i]?.status !== 'skipped'"
                             class="text-xs text-gray-400 italic">Complete previous step first</span>
+                      <!-- Warning for Step 1 if no submodules approved -->
+                      <span x-show="i === 1 && isStepUnlocked(i) && getTotalApprovedSubmodules() === 0 && stepStates[i]?.status !== 'completed'"
+                            class="text-xs text-yellow-600 flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                        Approve at least one submodule first
+                      </span>
                       <button x-show="stepStates[i]?.status === 'completed' || stepStates[i]?.status === 'skipped'"
                               @click="reopenStep(i)"
                               class="text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded text-xs border border-gray-300 hover:border-gray-400">
@@ -1658,15 +1738,19 @@
                       </button>
                     </div>
                     <div class="flex items-center gap-2">
-                      <button x-show="stepStates[i]?.status !== 'skipped' && stepStates[i]?.status !== 'completed'"
+                      <!-- Skip Step button -->
+                      <button x-show="stepStates[i]?.status !== 'skipped' && stepStates[i]?.status !== 'completed' && isStepUnlocked(i)"
                               @click="skipStep(i)"
                               class="text-gray-500 hover:text-yellow-600 px-3 py-1.5 rounded text-xs border border-gray-300 hover:border-yellow-400">
-                        Skip this step
+                        Skip Step
                       </button>
+                      <!-- Approve Step button - disabled if Step 1 has no approved submodules -->
                       <button x-show="stepStates[i]?.status !== 'completed' && stepStates[i]?.status !== 'skipped' && isStepUnlocked(i)"
                               @click="markStepCompleted(i)"
-                              class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-1.5 rounded text-xs font-medium shadow-sm">
-                        Approve & Continue
+                              :disabled="i === 1 && getTotalApprovedSubmodules() === 0"
+                              :class="(i === 1 && getTotalApprovedSubmodules() === 0) ? 'bg-gray-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'"
+                              class="text-white px-4 py-1.5 rounded text-xs font-medium shadow-sm">
+                        Approve Step
                       </button>
                     </div>
                   </div>
@@ -1687,7 +1771,7 @@
             <div class="flex items-center gap-3">
               <input x-model="projectSearchFilter" @input.debounce.200ms="filterProjects()" type="search" placeholder="Filter..."
                 class="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 w-40 focus:outline-none focus:border-brand-500">
-              <button @click="selectedProject = null; showPipelineAccordion = true; step0Mode = 'new'; step0NewProjectName = ''; step0SelectedProjectId = ''; expandedStep = 0; stepStates = {}; for(let i=0;i<12;i++)stepStates[i]={status:'pending',resultSummary:''}; stepStates[0]={status:'active',resultSummary:''}"
+              <button @click="selectedProject = null; showPipelineAccordion = true; step0Mode = 'new'; step0NewProjectName = ''; step0SelectedProjectId = ''; expandedStep = 0; stepStates = {}; for(let i=0;i<11;i++)stepStates[i]={status:'pending',resultSummary:''}; stepStates[0]={status:'active',resultSummary:''}"
                 class="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium">+ New Project</button>
             </div>
           </div>
@@ -2017,19 +2101,19 @@
   </div>
 
   <script>
+    // 11-Step Pipeline (Steps 0-10)
     const PIPELINE_STEPS = [
-      { name: 'Project Setup', short: 'Setup', operation: 'project-setup', description: 'Name your project, add tags, and choose a project type' },
-      { name: 'Input Specification', short: 'Input', operation: 'input-spec', description: 'Define raw material, output intent, and context (geography, language, freshness)' },
-      { name: 'Discovery & Enrichment', short: 'Discover', operation: 'discovery-enrich', description: 'Expand or enrich inputs — conditional on what Step 1 provides' },
-      { name: 'Source Validation', short: 'Validate', operation: 'source-validation', description: 'Filter sources by trust, authority, and policy compliance' },
-      { name: 'Content Extraction', short: 'Extract', operation: 'content-extract', description: 'Download and parse content from validated URLs' },
-      { name: 'Filtering & Adaptive Crawl', short: 'Filter', operation: 'content-filter', description: 'Deduplicate, quality-filter, and adaptively expand if needed' },
-      { name: 'Analysis & Generation', short: 'Generate', operation: 'profile-generate', description: 'Classify, tag, and generate output content via AI' },
-      { name: 'Validation & QA', short: 'QA', operation: 'qa-validation', description: 'Fact-check, detect hallucinations, score quality' },
-      { name: 'Routing & Flow', short: 'Route', operation: 'flow-router', description: 'Conditional logic: approve, retry, loop, or discard' },
-      { name: 'Output Bundling', short: 'Bundle', operation: 'output-package', description: 'Package into markdown, JSON, HTML, or custom formats' },
-      { name: 'Distribution', short: 'Distribute', operation: 'distributor', description: 'Publish to CMS, API, file storage, or webhooks' },
-      { name: 'Review & Triggers', short: 'Review', operation: 'review-trigger', description: 'Final approval, feedback, and downstream triggers' }
+      { name: 'Project Setup', short: 'Setup', operation: 'project-setup', description: 'Name your project, select template, and configure settings' },
+      { name: 'Discovery', short: 'Discover', operation: 'discovery', description: 'Find URLs via sitemap, navigation, search, and external sources' },
+      { name: 'Validation & Dedup', short: 'Validate', operation: 'validation', description: 'Filter by trust, authority, policy compliance, and remove duplicates' },
+      { name: 'Content Extraction', short: 'Extract', operation: 'extraction', description: 'Download and parse content from validated URLs' },
+      { name: 'Quality Filtering', short: 'Filter', operation: 'filtering', description: 'Language check, relevance scoring, adaptive expansion' },
+      { name: 'Analysis', short: 'Analyze', operation: 'analysis', description: 'Classify, tag, extract entities, and analyze content' },
+      { name: 'Generation', short: 'Generate', operation: 'generation', description: 'Generate output content via AI (profiles, summaries, etc.)' },
+      { name: 'QA & Review', short: 'QA', operation: 'qa', description: 'Fact-check, detect hallucinations, score quality' },
+      { name: 'Output Bundling', short: 'Bundle', operation: 'bundling', description: 'Package into markdown, JSON, HTML, or custom formats' },
+      { name: 'Distribution', short: 'Distribute', operation: 'distribution', description: 'Publish to CMS, API, file storage, or webhooks' },
+      { name: 'Final Review', short: 'Review', operation: 'review', description: 'Final approval, feedback, and downstream triggers' }
     ];
 
     const MOCK_PROJECTS = [
@@ -2127,9 +2211,108 @@
         templates: [],
         editingTemplate: null,
 
+        // Step 0 additional fields
+        step0ProjectDescription: '',
+        step0SelectedTemplateId: '',
+
         // Results Panel (slide-in)
         resultsPanelOpen: false,
         resultsPanel: null,
+
+        // New Submodule Overlay Panel State
+        submodulePanelOpen: false,
+        activeSubmodule: null,
+        activeCategory: null,
+        submoduleState: 'idle', // 'idle', 'ready', 'running', 'completed', 'viewing', 'approved'
+        submoduleRunResult: null,
+        showAdvancedOptions: false,
+        showUploadForm: false,
+        submoduleInputUrls: '',
+        uploadedCsvInfo: null,
+        submoduleOptions: {
+          // Sitemap options
+          sitemap_location: 'auto',
+          include_nested: true,
+          // Navigation options
+          scan_header: true,
+          scan_footer: true,
+          scan_sidebar: false,
+          follow_dropdowns: true,
+          // Seed expansion options
+          same_domain: true
+        },
+
+        // Entity Context (shared across submodules in a step)
+        entityContext: null,
+
+        // Discovery Categories and Submodules
+        discoveryCategories: {
+          website: {
+            label: 'Website',
+            icon: '🌐',
+            description: 'Find URLs from company websites',
+            enabled: true,
+            expanded: false,
+            submodules: [
+              { id: 'sitemap', name: 'Sitemap', description: 'Parse sitemap.xml to find URLs', cost: 'cheap', status: 'pending', result_count: 0 },
+              { id: 'navigation', name: 'Navigation', description: 'Extract links from site navigation', cost: 'cheap', status: 'pending', result_count: 0 },
+              { id: 'seed-expansion', name: 'Seed Expansion', description: 'Expand from seed URLs', cost: 'cheap', status: 'pending', result_count: 0 }
+            ]
+          },
+          news: {
+            label: 'News',
+            icon: '📰',
+            description: 'Find news and press releases',
+            enabled: false,
+            expanded: false,
+            submodules: [
+              { id: 'rss-feeds', name: 'RSS Feeds', description: 'Parse RSS/Atom feeds', cost: 'cheap', status: 'pending', result_count: 0 },
+              { id: 'news-search', name: 'News Search', description: 'Search news APIs', cost: 'medium', status: 'pending', result_count: 0 }
+            ]
+          },
+          linkedin: {
+            label: 'LinkedIn',
+            icon: '💼',
+            description: 'Company profiles and posts',
+            enabled: false,
+            expanded: false,
+            submodules: [
+              { id: 'linkedin-company', name: 'Company Page', description: 'Scrape company profile', cost: 'medium', status: 'pending', result_count: 0 },
+              { id: 'linkedin-posts', name: 'Posts', description: 'Fetch recent posts', cost: 'medium', status: 'pending', result_count: 0 }
+            ]
+          },
+          youtube: {
+            label: 'YouTube',
+            icon: '🎬',
+            description: 'Videos and channel content',
+            enabled: false,
+            expanded: false,
+            submodules: [
+              { id: 'youtube-channel', name: 'Channel Videos', description: 'List channel videos', cost: 'cheap', status: 'pending', result_count: 0 },
+              { id: 'youtube-search', name: 'YouTube Search', description: 'Search for videos', cost: 'medium', status: 'pending', result_count: 0 }
+            ]
+          },
+          twitter: {
+            label: 'Twitter/X',
+            icon: '🐦',
+            description: 'Profile and tweets',
+            enabled: false,
+            expanded: false,
+            submodules: [
+              { id: 'twitter-profile', name: 'Profile', description: 'Fetch profile & tweets', cost: 'medium', status: 'pending', result_count: 0 }
+            ]
+          },
+          search: {
+            label: 'Search',
+            icon: '🔍',
+            description: 'General web search (fallback)',
+            enabled: false,
+            expanded: false,
+            submodules: [
+              { id: 'google-search', name: 'Google Search', description: 'General web search', cost: 'expensive', status: 'pending', result_count: 0 }
+            ]
+          }
+        },
 
         // Open results panel with submodule data (mock mode)
         openResultsPanel(submodule, category) {
@@ -2563,6 +2746,290 @@
             { title: 'Result 1', description: 'Processed successfully', status: 'success' },
             { title: 'Result 2', description: 'Processed successfully', status: 'success' },
           ];
+        },
+
+        // ==================== DISCOVERY CATEGORY METHODS ====================
+
+        toggleDiscoveryCategory(catKey) {
+          // Close all other categories
+          Object.keys(this.discoveryCategories).forEach(key => {
+            if (key !== catKey) this.discoveryCategories[key].expanded = false;
+          });
+          // Toggle the clicked category
+          this.discoveryCategories[catKey].expanded = !this.discoveryCategories[catKey].expanded;
+        },
+
+        getApprovedSubmoduleCount(category) {
+          return category.submodules.filter(s => s.status === 'approved').length;
+        },
+
+        getCategoryUrlCount(category) {
+          return category.submodules
+            .filter(s => s.status === 'approved')
+            .reduce((sum, s) => sum + (s.result_count || 0), 0);
+        },
+
+        getTotalApprovedSubmodules() {
+          return Object.values(this.discoveryCategories)
+            .flatMap(cat => cat.submodules)
+            .filter(s => s.status === 'approved').length;
+        },
+
+        getTotalDiscoveredUrls() {
+          return Object.values(this.discoveryCategories)
+            .flatMap(cat => cat.submodules)
+            .filter(s => s.status === 'approved')
+            .reduce((sum, s) => sum + (s.result_count || 0), 0);
+        },
+
+        // ==================== SUBMODULE OVERLAY PANEL METHODS ====================
+
+        openSubmodule(submodule, category) {
+          this.activeSubmodule = submodule;
+          this.activeCategory = category;
+          this.submodulePanelOpen = true;
+          this.submoduleState = submodule.status === 'approved' ? 'approved' :
+                               submodule.status === 'has_results' ? 'completed' : 'idle';
+          this.submoduleRunResult = null;
+          this.showAdvancedOptions = false;
+          this.showUploadForm = false;
+          this.submoduleInputUrls = '';
+          this.uploadedCsvInfo = null;
+
+          // Reset options to defaults
+          this.submoduleOptions = {
+            sitemap_location: 'auto',
+            include_nested: true,
+            scan_header: true,
+            scan_footer: true,
+            scan_sidebar: false,
+            follow_dropdowns: true,
+            same_domain: true
+          };
+
+          // Load entity context if available
+          this.loadEntityContext();
+        },
+
+        closeSubmodulePanel() {
+          this.submodulePanelOpen = false;
+          this.activeSubmodule = null;
+          this.activeCategory = null;
+        },
+
+        canRunSubmodule() {
+          // Can run if we have entity context or user has entered URLs/uploaded CSV
+          return (this.entityContext && this.entityContext.entities?.length > 0) ||
+                 this.submoduleInputUrls.trim().length > 0 ||
+                 this.uploadedCsvInfo;
+        },
+
+        useExistingEntities() {
+          this.showUploadForm = false;
+          this.submoduleState = 'ready';
+        },
+
+        async loadEntityContext() {
+          if (!this.currentRunId) {
+            this.entityContext = null;
+            return;
+          }
+          try {
+            const res = await fetch(`/api/runs/${this.currentRunId}/step-context?step_index=1`);
+            if (res.ok) {
+              this.entityContext = await res.json();
+            } else {
+              this.entityContext = null;
+            }
+          } catch (e) {
+            console.error('Failed to load entity context:', e);
+            this.entityContext = null;
+          }
+        },
+
+        handleCsvUpload(event) {
+          const file = event.target.files[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const text = e.target.result;
+            const lines = text.trim().split('\n');
+            const rowCount = lines.length - 1; // Exclude header
+            this.uploadedCsvInfo = `${file.name} (${rowCount} rows)`;
+            this.submoduleState = 'ready';
+          };
+          reader.readAsText(file);
+        },
+
+        handleCsvDrop(event) {
+          const file = event.dataTransfer.files[0];
+          if (!file || !file.name.endsWith('.csv')) {
+            this.showToast('Please drop a CSV file', 'error');
+            return;
+          }
+          // Simulate the same as file input
+          const fakeEvent = { target: { files: [file] } };
+          this.handleCsvUpload(fakeEvent);
+        },
+
+        useCommonSeeds() {
+          // Add common seed paths to the URLs
+          const urls = this.submoduleInputUrls.trim().split('\n').filter(u => u.trim());
+          const commonPaths = ['/about', '/products', '/services', '/news', '/blog', '/careers', '/contact'];
+
+          const expanded = [];
+          urls.forEach(url => {
+            try {
+              const baseUrl = new URL(url);
+              commonPaths.forEach(path => {
+                expanded.push(baseUrl.origin + path);
+              });
+            } catch (e) {
+              // Invalid URL, skip
+            }
+          });
+
+          if (expanded.length > 0) {
+            this.submoduleInputUrls = expanded.join('\n');
+            this.showToast(`Added ${expanded.length} seed URLs`);
+          }
+        },
+
+        async runActiveSubmodule() {
+          if (!this.activeSubmodule) return;
+
+          this.submoduleState = 'running';
+
+          // Mock execution for demo mode
+          if (this.useMockData) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+
+            const mockEntities = [
+              { name: 'Betsson', url_count: 89, error: null },
+              { name: 'Evolution', url_count: 124, error: null },
+              { name: 'LeoVegas', url_count: 67, error: null },
+              { name: 'Kindred', url_count: 32, error: null },
+              { name: 'BetCorp', url_count: 0, error: 'SITEMAP_NOT_FOUND' }
+            ];
+
+            const totalUrls = mockEntities.reduce((sum, e) => sum + e.url_count, 0);
+
+            this.submoduleRunResult = {
+              result_count: totalUrls,
+              entities: mockEntities,
+              sample_urls: [
+                'https://betsson.com/about',
+                'https://betsson.com/products',
+                'https://betsson.com/careers',
+                'https://evolution.com/about',
+                'https://evolution.com/games',
+                'https://evolution.com/live-casino',
+                'https://leovegas.com/about-us',
+                'https://leovegas.com/sports',
+                'https://kindred.com/about',
+                'https://kindred.com/brands'
+              ],
+              errors: mockEntities.filter(e => e.error)
+            };
+
+            this.activeSubmodule.status = 'has_results';
+            this.activeSubmodule.result_count = totalUrls;
+            this.submoduleState = 'completed';
+            return;
+          }
+
+          // Live API execution
+          try {
+            const res = await fetch(`/api/submodules/discovery/${this.activeSubmodule.id}/execute`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                run_id: this.currentRunId,
+                urls: this.submoduleInputUrls.trim().split('\n').filter(u => u.trim()),
+                options: this.submoduleOptions
+              })
+            });
+
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Execution failed');
+            }
+
+            const result = await res.json();
+            this.submoduleRunResult = result;
+            this.activeSubmodule.status = 'has_results';
+            this.activeSubmodule.result_count = result.result_count || 0;
+            this.submoduleState = 'completed';
+          } catch (e) {
+            console.error('Submodule execution failed:', e);
+            this.showToast(e.message, 'error');
+            this.submoduleState = 'idle';
+          }
+        },
+
+        async approveSubmoduleRun() {
+          if (!this.activeSubmodule) return;
+
+          // Mock approval for demo mode
+          if (this.useMockData) {
+            this.activeSubmodule.status = 'approved';
+            this.submoduleState = 'approved';
+            this.showToast(`Approved ${this.submoduleRunResult?.result_count || 0} URLs`);
+            return;
+          }
+
+          // Live API approval
+          try {
+            const res = await fetch(`/api/submodules/runs/${this.currentRunId}/${this.activeSubmodule.id}/approve`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Approval failed');
+            }
+
+            this.activeSubmodule.status = 'approved';
+            this.submoduleState = 'approved';
+            this.showToast(`Approved ${this.submoduleRunResult?.result_count || 0} URLs`);
+          } catch (e) {
+            console.error('Approval failed:', e);
+            this.showToast(e.message, 'error');
+          }
+        },
+
+        rejectSubmoduleRun() {
+          if (!this.activeSubmodule) return;
+
+          this.activeSubmodule.status = 'pending';
+          this.activeSubmodule.result_count = 0;
+          this.submoduleRunResult = null;
+          this.submoduleState = 'idle';
+          this.showToast('Results rejected');
+        },
+
+        // ==================== STEP APPROVAL METHODS ====================
+
+        canApproveStep(stepIndex) {
+          // Step 0 just requires a project selected
+          if (stepIndex === 0) return !!this.selectedProject;
+
+          // Step 1 (Discovery) requires at least one approved submodule
+          if (stepIndex === 1) {
+            return this.getTotalApprovedSubmodules() > 0;
+          }
+
+          // Other steps: check their specific requirements
+          return true;
+        },
+
+        getStepApprovalMessage(stepIndex) {
+          if (stepIndex === 1 && this.getTotalApprovedSubmodules() === 0) {
+            return 'Approve at least one submodule before approving this step';
+          }
+          return null;
         },
 
         async init() {
