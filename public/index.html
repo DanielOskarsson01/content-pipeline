@@ -253,14 +253,16 @@
               </div>
             </div>
 
-            <!-- URL Preview (sample) -->
+            <!-- All Discovered URLs -->
             <div class="mb-4">
-              <p class="text-xs text-gray-600 font-medium uppercase mb-2">Sample URLs</p>
-              <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 max-h-40 overflow-y-auto">
-                <template x-for="(url, idx) in (submoduleRunResult?.sample_urls || []).slice(0, 10)" :key="idx">
-                  <p class="text-[10px] text-gray-600 truncate py-0.5" x-text="url"></p>
+              <p class="text-xs text-gray-600 font-medium uppercase mb-2">Discovered URLs</p>
+              <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 max-h-96 overflow-y-auto">
+                <template x-for="(url, idx) in (submoduleRunResult?.all_urls || [])" :key="idx">
+                  <a :href="url" target="_blank" rel="noopener"
+                     class="block text-[10px] text-blue-600 hover:text-blue-800 hover:underline py-0.5 truncate"
+                     x-text="url"></a>
                 </template>
-                <p x-show="(submoduleRunResult?.sample_urls || []).length > 10" class="text-[10px] text-gray-400 mt-1" x-text="'... and ' + (submoduleRunResult.result_count - 10) + ' more'"></p>
+                <p x-show="!submoduleRunResult?.all_urls?.length" class="text-[10px] text-gray-400">No URLs discovered</p>
               </div>
             </div>
           </div>
@@ -2809,13 +2811,20 @@
           this.activeSubmodule = submodule;
           this.activeCategory = category;
           this.submodulePanelOpen = true;
-          this.submoduleState = submodule.status === 'approved' ? 'approved' :
-                               submodule.status === 'has_results' ? 'completed' : 'idle';
-          this.submoduleRunResult = null;
           this.showAdvancedOptions = false;
           this.showUploadForm = false;
           this.submoduleInputUrls = '';
           this.uploadedCsvInfo = null;
+
+          // Restore saved results if available
+          if (submodule.runResult) {
+            this.submoduleRunResult = submodule.runResult;
+            this.submoduleState = submodule.status === 'approved' ? 'approved' : 'viewing';
+          } else {
+            this.submoduleRunResult = null;
+            this.submoduleState = submodule.status === 'approved' ? 'approved' :
+                                 submodule.status === 'has_results' ? 'completed' : 'idle';
+          }
 
           // Reset options to defaults
           this.submoduleOptions = {
@@ -3152,10 +3161,16 @@
             this.submoduleRunResult = {
               result_count: result.result_count || 0,
               submodule_run_id: result.submodule_run_id,
+              preview_mode: result.preview_mode,
               entities: Object.values(groupedEntities),
-              sample_urls: (result.results || []).slice(0, 20).map(r => r.url),
+              all_urls: (result.results || []).map(r => r.url),
               errors: result.results?._errors || []
             };
+
+            // Store results in submodule for persistence
+            if (this.activeSubmodule) {
+              this.activeSubmodule.runResult = this.submoduleRunResult;
+            }
 
             this.activeSubmodule.status = 'has_results';
             this.activeSubmodule.result_count = result.result_count || 0;
@@ -3178,9 +3193,23 @@
             return;
           }
 
-          // Live API approval
+          // Live API approval - only works in database mode (not preview)
           try {
-            const res = await fetch(`/api/submodules/runs/${this.currentRunId}/${this.activeSubmodule.id}/approve`, {
+            // Preview mode - just mark as approved locally
+            if (this.submoduleRunResult?.preview_mode || !this.currentRunId) {
+              this.activeSubmodule.status = 'approved';
+              this.submoduleState = 'approved';
+              this.showToast(`Approved ${this.submoduleRunResult?.result_count || 0} URLs (preview mode - not saved)`);
+              return;
+            }
+
+            // Database mode - save to backend
+            const submoduleRunId = this.submoduleRunResult?.submodule_run_id;
+            if (!submoduleRunId) {
+              throw new Error('No submodule run ID found');
+            }
+
+            const res = await fetch(`/api/submodules/runs/${this.currentRunId}/${submoduleRunId}/approve`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' }
             });
@@ -3527,6 +3556,13 @@
           this.selectedProject = project;
           this.showPipelineAccordion = true;
           this.expandedStep = 0;
+
+          // Reset discovery submodules to initial state
+          this.resetDiscoverySubmodules();
+
+          // Reset entity context
+          this.entityContext = null;
+
           // Initialize step states for this project
           this.stepStates = {};
           for (let i = 0; i < 12; i++) {
@@ -3544,6 +3580,19 @@
             this.stepStates[0] = { status: 'active', resultSummary: '' };
             this.expandedStep = 0;
           }
+        },
+
+        resetDiscoverySubmodules() {
+          // Reset all submodules in all categories to initial state
+          for (const category of Object.values(this.discoveryCategories)) {
+            for (const submodule of category.submodules) {
+              submodule.status = 'pending';
+              submodule.result_count = 0;
+              submodule.runResult = null;
+            }
+          }
+          // Also reset active submodule results
+          this.submoduleRunResult = null;
         },
 
         startNewProject() {
