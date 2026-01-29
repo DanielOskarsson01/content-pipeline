@@ -65,16 +65,17 @@ router.get('/', async (req, res, next) => {
 /**
  * POST /api/submodules/:type/:name/execute
  * Execute a single submodule for given entities
- * Body: { run_id?, run_entity_ids?: string[], entities?: object[], config?: object }
+ * Body: { run_id?, run_entity_ids?: string[], entities?: object[], project_id?, config?: object }
  *
- * Two modes:
+ * Three modes:
  * 1. With run_id + run_entity_ids: Load entities from database, save results
- * 2. With entities array directly: Preview mode, no database save
+ * 2. With project_id + entities: Auto-create run + run_entities, then save results
+ * 3. With entities array only: Preview mode, no database save
  */
 router.post('/:type/:name/execute', async (req, res, next) => {
   try {
     const { type, name } = req.params;
-    const { run_id, run_entity_ids, entities: directEntities, config = {} } = req.body;
+    let { run_id, run_entity_ids, entities: directEntities, project_id, config = {} } = req.body;
 
     // Load submodule
     const submodule = loadSubmodule(type, name);
@@ -84,9 +85,85 @@ router.post('/:type/:name/execute', async (req, res, next) => {
 
     let entities = [];
     let isPreviewMode = false;
+    let createdRunId = null;
+    let createdRunEntityIds = null;
 
-    // Mode 1: Direct entities (preview mode - no database)
-    if (directEntities && Array.isArray(directEntities) && directEntities.length > 0) {
+    // Mode 1: Direct entities with project_id - auto-create run
+    if (project_id && !run_id && directEntities && Array.isArray(directEntities) && directEntities.length > 0) {
+      // Create pipeline_run
+      const { data: runData, error: runErr } = await db
+        .from('pipeline_runs')
+        .insert({
+          project_id,
+          status: 'running',
+          entities_total: directEntities.length,
+          started_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (runErr) {
+        if (runErr.code === '42P01') {
+          return res.status(503).json({
+            error: 'Database not ready',
+            detail: 'pipeline_runs table does not exist. Run sql/mvp1b_schema.sql in Supabase.'
+          });
+        }
+        throw runErr;
+      }
+
+      run_id = runData.id;
+      createdRunId = runData.id;
+
+      // Create run_entities from directEntities
+      const runEntitiesToInsert = directEntities.map((e, idx) => ({
+        run_id,
+        entity_id: null, // Not linking to entities table for MVP
+        entity_snapshot: {
+          id: e.id || `entity-${idx}`,
+          name: e.name || e.entity_name || 'Unknown',
+          metadata: {
+            website: e.website,
+            domain: e.website ? (() => { try { return new URL(e.website.startsWith('http') ? e.website : 'https://' + e.website).hostname; } catch { return null; } })() : null,
+            ...e
+          }
+        },
+        processing_order: idx,
+        status: 'pending'
+      }));
+
+      const { data: reData, error: reErr } = await db
+        .from('run_entities')
+        .insert(runEntitiesToInsert)
+        .select();
+
+      if (reErr) {
+        if (reErr.code === '42P01') {
+          return res.status(503).json({
+            error: 'Database not ready',
+            detail: 'run_entities table does not exist. Run sql/mvp1b_schema.sql in Supabase.'
+          });
+        }
+        throw reErr;
+      }
+
+      run_entity_ids = reData.map(re => re.id);
+      createdRunEntityIds = run_entity_ids;
+
+      // Build entities from what we created
+      entities = reData.map(re => ({
+        id: re.entity_snapshot?.id || re.id,
+        run_entity_id: re.id, // Include for URL storage
+        name: re.entity_snapshot?.name || 'Unknown',
+        entity_name: re.entity_snapshot?.name,
+        website: re.entity_snapshot?.metadata?.website,
+        metadata: re.entity_snapshot?.metadata || {},
+        domain: re.entity_snapshot?.metadata?.domain,
+        seed_urls: re.entity_snapshot?.metadata?.seed_urls || []
+      }));
+    }
+    // Mode 2: Direct entities without project_id (preview mode - no database)
+    else if (directEntities && Array.isArray(directEntities) && directEntities.length > 0) {
       isPreviewMode = true;
       entities = directEntities.map((e, idx) => ({
         id: e.id || `preview-${idx}`,
@@ -98,7 +175,7 @@ router.post('/:type/:name/execute', async (req, res, next) => {
         seed_urls: e.seed_urls || []
       }));
     }
-    // Mode 2: Load from database
+    // Mode 3: Load from database
     else if (run_id && run_entity_ids && run_entity_ids.length > 0) {
       const { data: runEntities, error: reErr } = await db
         .from('run_entities')
@@ -112,6 +189,7 @@ router.post('/:type/:name/execute', async (req, res, next) => {
 
       entities = runEntities.map(re => ({
         id: re.entity_snapshot?.id || re.id,
+        run_entity_id: re.id, // Include for URL storage
         name: re.entity_snapshot?.name || 'Unknown',
         entity_name: re.entity_snapshot?.name,
         website: re.entity_snapshot?.metadata?.website,
@@ -122,7 +200,7 @@ router.post('/:type/:name/execute', async (req, res, next) => {
     }
     else {
       return res.status(400).json({
-        error: 'Provide either "entities" array for preview, or "run_id" + "run_entity_ids" for database mode'
+        error: 'Provide either "entities" array for preview, or "run_id" + "run_entity_ids" for database mode, or "project_id" + "entities" to auto-create a run'
       });
     }
 
@@ -188,14 +266,17 @@ router.post('/:type/:name/execute', async (req, res, next) => {
 
     res.json({
       submodule_run_id: submoduleRunId,
-      preview_mode: !run_id,
+      preview_mode: isPreviewMode,
       submodule: `${type}/${name}`,
       status,
       result_count: results.length,
       duration_ms: duration,
       results,
       logs,
-      error
+      error,
+      // Include created run info so frontend can use it for subsequent submodules
+      created_run_id: createdRunId,
+      created_run_entity_ids: createdRunEntityIds
     });
   } catch (err) { next(err); }
 });

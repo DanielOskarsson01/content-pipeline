@@ -3068,18 +3068,31 @@
             };
 
             // Build request body based on mode
-            // Preview mode: send entities directly (no database storage)
-            // Database mode: send run_id and run_entity_ids (results saved)
-            const requestBody = this.currentRunId
-              ? {
-                  run_id: this.currentRunId,
-                  run_entity_ids: this.currentRunEntityIds?.length > 0 ? this.currentRunEntityIds : entities.map(e => e.id),
-                  config
-                }
-              : {
-                  entities: entities,
-                  config
-                };
+            // 1. Database mode: have run_id, use it
+            // 2. Auto-create mode: have project but no run, send project_id to auto-create run
+            // 3. Preview mode: no project, no run - just preview
+            let requestBody;
+            if (this.currentRunId) {
+              // Database mode - use existing run
+              requestBody = {
+                run_id: this.currentRunId,
+                run_entity_ids: this.currentRunEntityIds?.length > 0 ? this.currentRunEntityIds : entities.map(e => e.id),
+                config
+              };
+            } else if (this.selectedProject?.id) {
+              // Auto-create mode - have project but no run yet
+              requestBody = {
+                project_id: this.selectedProject.id,
+                entities: entities,
+                config
+              };
+            } else {
+              // Pure preview mode - no database storage
+              requestBody = {
+                entities: entities,
+                config
+              };
+            }
 
             const res = await fetch(`/api/submodules/discovery/${this.activeSubmodule.id}/execute`, {
               method: 'POST',
@@ -3093,6 +3106,13 @@
             }
 
             const result = await res.json();
+
+            // If a run was auto-created, store the IDs for subsequent submodules
+            if (result.created_run_id) {
+              this.currentRunId = result.created_run_id;
+              this.currentRunEntityIds = result.created_run_entity_ids;
+              console.log('Auto-created run:', this.currentRunId, 'with', this.currentRunEntityIds?.length, 'entities');
+            }
 
             // Group results by entity for display (store URLs per entity)
             const groupedEntities = {};
