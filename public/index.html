@@ -214,26 +214,22 @@
               <!-- Results content -->
               <div x-show="submoduleRunResult" class="flex-1 flex flex-col min-h-0 p-4 overflow-hidden">
                 <p class="text-xs text-gray-600 font-medium uppercase mb-2 flex-shrink-0">URLs</p>
-                <div class="flex-1 overflow-y-auto space-y-3">
-                  <!-- Group URLs by entity/domain -->
+                <div class="flex-1 overflow-y-auto space-y-4">
+                  <!-- URLs grouped by entity -->
                   <template x-for="(entity, idx) in submoduleRunResult?.entities || []" :key="idx">
-                    <div>
-                      <p class="font-semibold text-sm text-gray-800 mb-1" x-text="entity.name"></p>
-                      <template x-for="(url, uidx) in (submoduleRunResult?.all_urls || []).filter(u => u.includes(entity.name.replace('www.', '').split('/')[0]))" :key="uidx">
-                        <a :href="url" target="_blank" rel="noopener"
-                           class="block text-xs text-blue-600 hover:text-blue-800 hover:underline py-0.5"
-                           x-text="url"></a>
-                      </template>
-                    </div>
-                  </template>
-                  <!-- Fallback: show all URLs if no entity grouping -->
-                  <template x-if="!submoduleRunResult?.entities?.length && submoduleRunResult?.all_urls?.length">
-                    <div>
-                      <template x-for="(url, idx) in submoduleRunResult.all_urls" :key="idx">
-                        <a :href="url" target="_blank" rel="noopener"
-                           class="block text-xs text-blue-600 hover:text-blue-800 hover:underline py-0.5"
-                           x-text="url"></a>
-                      </template>
+                    <div class="border-b border-gray-100 pb-3">
+                      <p class="font-semibold text-sm text-gray-800 mb-2">
+                        <span x-text="entity.name"></span>
+                        <span class="text-xs text-gray-400 font-normal ml-2" x-text="'(' + entity.url_count + ' URLs)'"></span>
+                      </p>
+                      <div class="space-y-1 pl-2">
+                        <template x-for="(url, uidx) in entity.urls || []" :key="uidx">
+                          <a :href="url" target="_blank" rel="noopener"
+                             class="block text-xs text-blue-600 hover:text-blue-800 hover:underline py-0.5 truncate"
+                             :title="url"
+                             x-text="url"></a>
+                        </template>
+                      </div>
                     </div>
                   </template>
                 </div>
@@ -2851,6 +2847,9 @@
             this.submoduleState = 'ready';
           };
           reader.readAsText(file);
+
+          // Reset file input to allow re-uploading the same or different file
+          event.target.value = '';
         },
 
         parseCsvToEntities(csvText) {
@@ -3081,12 +3080,15 @@
 
             const result = await res.json();
 
-            // Group results by entity for display
+            // Group results by entity for display (store URLs per entity)
             const groupedEntities = {};
             (result.results || []).forEach(r => {
               const name = r.entity_name || 'Unknown';
-              if (!groupedEntities[name]) groupedEntities[name] = { name, url_count: 0, error: null };
+              if (!groupedEntities[name]) {
+                groupedEntities[name] = { name, url_count: 0, urls: [], error: null };
+              }
               groupedEntities[name].url_count++;
+              groupedEntities[name].urls.push(r.url);
             });
 
             this.submoduleRunResult = {
@@ -3094,7 +3096,6 @@
               submodule_run_id: result.submodule_run_id,
               preview_mode: result.preview_mode,
               entities: Object.values(groupedEntities),
-              all_urls: (result.results || []).map(r => r.url),
               errors: result.results?._errors || []
             };
 
