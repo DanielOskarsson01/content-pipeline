@@ -121,6 +121,11 @@
                     <label class="block text-xs text-gray-600 mb-1">Paste URLs (one per line)</label>
                     <textarea x-model="submoduleInputUrls" rows="3" placeholder="https://betsson.com&#10;https://evolution.com&#10;https://leovegas.com"
                       class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm font-mono focus:outline-none focus:border-brand-500"></textarea>
+                    <button x-show="submoduleInputUrls.trim().length > 0"
+                            @click="saveUrlsAsEntities()"
+                            class="mt-2 w-full bg-brand-600 hover:bg-brand-700 text-white py-2 rounded text-sm font-medium">
+                      Save URLs
+                    </button>
                   </div>
                   <div class="text-center text-[10px] text-gray-400 mb-3">— or —</div>
                   <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-brand-400 transition-colors cursor-pointer"
@@ -198,22 +203,6 @@
               </div>
             </div>
 
-            <!-- RUN Button -->
-            <div class="mt-6">
-              <!-- Warning if no project selected -->
-              <div x-show="!selectedProject && !useMockData" class="mb-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-                <p class="text-xs text-yellow-800">Create or select a project in Step 0 first to save results to database.</p>
-                <p class="text-[10px] text-yellow-600 mt-1">You can still run a preview without saving.</p>
-              </div>
-              <button @click="runActiveSubmodule()"
-                      :disabled="!canRunSubmodule()"
-                      :class="canRunSubmodule() ? 'bg-brand-600 hover:bg-brand-700 text-white' : 'bg-gray-200 text-gray-400 cursor-not-allowed'"
-                      class="w-full py-3 rounded-lg font-medium text-sm transition-colors">
-                <span x-show="!canRunSubmodule()">Enter URLs or upload CSV to run</span>
-                <span x-show="canRunSubmodule()">Run <span x-text="activeSubmodule?.name"></span></span>
-              </button>
-            </div>
-
           </div>
 
           <!-- State: RUNNING -->
@@ -267,13 +256,54 @@
             </div>
           </div>
 
-          <!-- State: APPROVED -->
-          <div x-show="submoduleState === 'approved'" class="text-center py-8">
-            <div class="flex items-center justify-center gap-2 text-green-600 mb-4">
-              <svg class="w-10 h-10" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+          <!-- State: APPROVED (show results with approval badge) -->
+          <div x-show="submoduleState === 'approved'">
+            <!-- Approval Badge -->
+            <div class="mb-4 p-3 bg-green-50 rounded-lg border border-green-200">
+              <div class="flex items-center gap-2 text-green-700">
+                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                <span class="text-sm font-medium">Approved</span>
+                <span class="text-xs text-green-600" x-text="'(' + (submoduleRunResult?.result_count || 0) + ' URLs)'"></span>
+              </div>
             </div>
-            <p class="text-sm font-medium text-green-700">Results Approved</p>
-            <p class="text-xs text-gray-500 mt-1" x-text="(submoduleRunResult?.result_count || 0) + ' URLs saved to discovery pool'"></p>
+
+            <!-- Results by Entity -->
+            <div class="mb-4" x-show="submoduleRunResult?.entities?.length > 0">
+              <div class="flex items-center justify-between mb-2">
+                <p class="text-xs text-gray-600 font-medium uppercase">Results by entity</p>
+                <span class="text-xs text-gray-500" x-text="(submoduleRunResult?.result_count || 0) + ' total URLs'"></span>
+              </div>
+              <div class="space-y-2 max-h-40 overflow-y-auto">
+                <template x-for="(entity, idx) in submoduleRunResult?.entities || []" :key="idx">
+                  <div class="bg-white rounded border border-gray-200 p-3">
+                    <div class="flex items-center justify-between">
+                      <span class="text-xs font-medium text-gray-800" x-text="entity.name"></span>
+                      <span class="text-xs text-green-600" x-text="entity.url_count + ' URLs'"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- All Discovered URLs -->
+            <div class="mb-4" x-show="submoduleRunResult?.all_urls?.length > 0">
+              <p class="text-xs text-gray-600 font-medium uppercase mb-2">Discovered URLs</p>
+              <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 max-h-64 overflow-y-auto">
+                <template x-for="(url, idx) in (submoduleRunResult?.all_urls || [])" :key="idx">
+                  <a :href="url" target="_blank" rel="noopener"
+                     class="block text-[10px] text-blue-600 hover:text-blue-800 hover:underline py-0.5 truncate"
+                     x-text="url"></a>
+                </template>
+              </div>
+            </div>
+
+            <!-- Run Again Option -->
+            <div class="mt-4 pt-4 border-t border-gray-200">
+              <button @click="submoduleState = 'idle'; submoduleRunResult = null; activeSubmodule.status = 'pending'; activeSubmodule.result_count = 0; activeSubmodule.runResult = null;"
+                      class="text-xs text-gray-500 hover:text-gray-700 underline">
+                Run again with different input
+              </button>
+            </div>
           </div>
 
         </div>
@@ -2857,6 +2887,40 @@
         useExistingEntities() {
           this.showUploadForm = false;
           this.submoduleState = 'ready';
+        },
+
+        saveUrlsAsEntities() {
+          const urls = this.submoduleInputUrls.trim().split('\n').filter(u => u.trim());
+          if (urls.length === 0) {
+            this.showToast('No URLs entered', 'error');
+            return;
+          }
+
+          // Convert URLs to entities
+          const entities = urls.map((url, idx) => {
+            const cleanUrl = url.trim();
+            let domain = cleanUrl;
+            try {
+              const parsed = new URL(cleanUrl.startsWith('http') ? cleanUrl : 'https://' + cleanUrl);
+              domain = parsed.hostname;
+            } catch {}
+            return {
+              entity_name: domain,
+              website: cleanUrl.startsWith('http') ? cleanUrl : 'https://' + cleanUrl
+            };
+          });
+
+          // Store in local context
+          this.entityContext = {
+            entities,
+            source_submodule: 'url-paste',
+            stats: this.calculateEntityStats(entities)
+          };
+
+          this.uploadedCsvInfo = `${entities.length} URLs saved`;
+          this.submoduleInputUrls = '';
+          this.submoduleState = 'ready';
+          this.showToast(`Saved ${entities.length} URLs`);
         },
 
         async loadEntityContext() {
