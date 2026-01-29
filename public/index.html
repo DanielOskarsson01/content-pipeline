@@ -569,107 +569,57 @@
                       </div>
                     </div>
 
-                    <!-- STEP 1: Discovery (Category Cards with Submodules) -->
+                    <!-- STEP 1: Discovery (Category Cards with Submodules - Inline Expand) -->
                     <div x-show="i === 1">
                       <div class="bg-blue-50 rounded-lg p-3 border border-blue-200 mb-4">
-                        <p class="text-xs text-blue-700 font-medium mb-1">URL Discovery</p>
-                        <p class="text-xs text-gray-600">Select source categories and run submodules to discover URLs. Each submodule can be run, reviewed, and approved independently.</p>
+                        <p class="text-xs text-[#E11D73] font-medium mb-1">Multi-Source Discovery</p>
+                        <p class="text-xs text-gray-600">Enable source types and configure submodules for each. Cheap sources run first in parallel; expensive sources run as fallback if needed.</p>
                       </div>
 
-                      <!-- Source Category Cards -->
-                      <p class="text-xs text-gray-500 mb-3 font-medium uppercase">Source Categories</p>
+                      <!-- Source Category Cards with Inline Submodules -->
+                      <p class="text-xs text-gray-500 mb-3 font-medium">Source Types (click to configure)</p>
                       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
                         <template x-for="(cat, catKey) in discoveryCategories" :key="catKey">
-                          <div class="rounded-lg border-2 transition-all cursor-pointer submodule-card"
+                          <div class="rounded-lg border transition-all"
                                :class="{
-                                 'border-brand-400 bg-white shadow-md': cat.expanded,
-                                 'border-gray-200 bg-gray-50 hover:border-gray-300': !cat.expanded && !cat.enabled,
-                                 'border-brand-200 bg-white': !cat.expanded && cat.enabled
-                               }"
-                               @click="toggleDiscoveryCategory(catKey)">
-                            <div class="p-4">
-                              <div class="flex items-center justify-between mb-2">
-                                <span class="text-2xl" x-text="cat.icon"></span>
-                                <button @click.stop="cat.enabled = !cat.enabled"
-                                        class="w-10 h-5 rounded-full relative transition-colors"
-                                        :class="cat.enabled ? 'bg-brand-500' : 'bg-gray-300'">
-                                  <span class="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all"
-                                        :class="cat.enabled ? 'right-0.5' : 'left-0.5'"></span>
-                                </button>
-                              </div>
+                                 'border-dashed border-2 border-brand-400 bg-white': cat.expanded,
+                                 'border-gray-200 bg-white hover:border-gray-300': !cat.expanded
+                               }">
+                            <!-- Category Header (always visible) -->
+                            <div class="p-3 cursor-pointer" @click="toggleDiscoveryCategory(catKey)">
                               <p class="text-sm font-semibold text-gray-800" x-text="cat.label"></p>
-                              <p class="text-[10px] text-gray-500 mt-1">
-                                <span x-text="getApprovedSubmoduleCount(cat) + '/' + cat.submodules.length"></span> approved
-                                <span x-show="getCategoryUrlCount(cat) > 0" class="text-green-600 ml-1" x-text="'• ' + getCategoryUrlCount(cat) + ' URLs'"></span>
+                              <p class="text-[10px] text-gray-500">
+                                <span x-text="getApprovedSubmoduleCount(cat) + '/' + cat.submodules.length"></span> submodules
                               </p>
+                            </div>
+
+                            <!-- Inline Submodules (shown when expanded) -->
+                            <div x-show="cat.expanded" x-transition class="border-t border-gray-200">
+                              <p class="text-[10px] text-gray-500 font-medium uppercase px-3 pt-2">Submodules</p>
+                              <div class="p-2 space-y-1">
+                                <template x-for="sub in cat.submodules" :key="sub.id">
+                                  <div class="flex items-center justify-between p-2 rounded hover:bg-gray-50 cursor-pointer group"
+                                       @click.stop="openSubmodule(sub, cat)">
+                                    <div class="flex items-center gap-2">
+                                      <input type="checkbox"
+                                             :checked="sub.status === 'approved'"
+                                             @click.stop
+                                             class="rounded border-gray-300 text-[#0891B2]">
+                                      <div>
+                                        <p class="text-sm text-gray-700" :class="{'text-[#E11D73]': sub.status === 'approved'}" x-text="sub.name"></p>
+                                        <p class="text-[10px] text-gray-400" x-text="sub.description"></p>
+                                      </div>
+                                    </div>
+                                    <svg class="w-5 h-5 text-[#E11D73] opacity-50 group-hover:opacity-100" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                                    </svg>
+                                  </div>
+                                </template>
+                              </div>
                             </div>
                           </div>
                         </template>
                       </div>
-
-                      <!-- Expanded Category: Submodule List -->
-                      <template x-for="(cat, catKey) in discoveryCategories" :key="'sub-' + catKey">
-                        <div x-show="cat.expanded" x-transition class="mb-6">
-                          <div class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-                            <!-- Category Header -->
-                            <div class="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
-                              <div class="flex items-center gap-2">
-                                <span class="text-xl" x-text="cat.icon"></span>
-                                <div>
-                                  <h4 class="text-sm font-semibold text-gray-800" x-text="cat.label + ' Submodules'"></h4>
-                                  <p class="text-[10px] text-gray-500" x-text="cat.description"></p>
-                                </div>
-                              </div>
-                              <button @click="cat.expanded = false" class="text-gray-400 hover:text-gray-600 p-1">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                              </button>
-                            </div>
-
-                            <!-- Submodule Cards -->
-                            <div class="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-                              <template x-for="sub in cat.submodules" :key="sub.id">
-                                <div class="rounded-lg border-2 p-4 transition-all cursor-pointer submodule-card hover:shadow-md"
-                                     :class="{
-                                       'approved border-green-400 bg-green-50': sub.status === 'approved',
-                                       'has-results border-blue-400 bg-blue-50': sub.status === 'has_results',
-                                       'running border-yellow-400': sub.status === 'running',
-                                       'border-gray-200 bg-white hover:border-brand-300': sub.status === 'pending' || !sub.status
-                                     }"
-                                     @click="openSubmodule(sub, cat)">
-                                  <div class="flex items-start justify-between mb-2">
-                                    <div>
-                                      <p class="text-sm font-medium text-gray-800" x-text="sub.name"></p>
-                                      <p class="text-[10px] text-gray-500" x-text="sub.description"></p>
-                                    </div>
-                                    <span :class="{
-                                            'bg-green-100 text-green-700': sub.cost === 'cheap',
-                                            'bg-yellow-100 text-yellow-700': sub.cost === 'medium',
-                                            'bg-orange-100 text-orange-700': sub.cost === 'expensive'
-                                          }"
-                                          class="text-[8px] px-1.5 py-0.5 rounded font-medium" x-text="sub.cost"></span>
-                                  </div>
-
-                                  <!-- Status indicator -->
-                                  <div class="flex items-center justify-between mt-3">
-                                    <span x-show="sub.status === 'approved'" class="text-xs text-green-600 flex items-center gap-1">
-                                      <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                                      <span x-text="(sub.result_count || 0) + ' URLs approved'"></span>
-                                    </span>
-                                    <span x-show="sub.status === 'has_results'" class="text-xs text-blue-600 flex items-center gap-1">
-                                      <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
-                                      <span x-text="(sub.result_count || 0) + ' URLs found'"></span>
-                                    </span>
-                                    <span x-show="sub.status === 'running'" class="text-xs text-yellow-600">Running...</span>
-                                    <span x-show="!sub.status || sub.status === 'pending'" class="text-xs text-gray-400">Not run</span>
-
-                                    <span class="text-[10px] text-brand-600 font-medium">Open →</span>
-                                  </div>
-                                </div>
-                              </template>
-                            </div>
-                          </div>
-                        </div>
-                      </template>
 
                       <!-- Discovery Summary -->
                       <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
