@@ -2577,12 +2577,12 @@
                 })));
               }
             }
-            return items.slice(0, 50); // Limit for UI
+            return items; // No limit - filtering in Step 2
           }
 
           // Handle discovered_urls array
           if (output.urls && Array.isArray(output.urls)) {
-            return output.urls.slice(0, 50).map(url => ({
+            return output.urls.map(url => ({
               url: typeof url === 'string' ? url : url.url,
               title: typeof url === 'object' ? url.title : null,
               status: 'success'
@@ -2591,7 +2591,7 @@
 
           // Handle scraped_pages array
           if (output.pages && Array.isArray(output.pages)) {
-            return output.pages.slice(0, 50).map(page => ({
+            return output.pages.map(page => ({
               title: page.title || page.url,
               description: `${page.word_count || 0} words`,
               url: page.url,
@@ -2601,7 +2601,7 @@
 
           // Handle generic items array
           if (output.items && Array.isArray(output.items)) {
-            return output.items.slice(0, 50);
+            return output.items;
           }
 
           // Fallback: show raw keys as stats

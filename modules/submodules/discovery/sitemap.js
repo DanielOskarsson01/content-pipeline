@@ -41,7 +41,7 @@ module.exports = {
   options: [
     { name: 'sitemap_location', type: 'select', values: ['auto', 'custom'], default: 'auto', description: 'Auto-detect or specify URL' },
     { name: 'include_nested', type: 'boolean', values: [true, false], default: true, description: 'Follow sitemap index to child sitemaps' },
-    { name: 'max_urls_per_entity', type: 'number', default: 500, description: 'Max URLs to collect per entity' }
+    { name: 'max_urls_per_entity', type: 'number', default: 10000, description: 'Max URLs to collect per entity' }
   ],
 
   output_type: 'urls',
@@ -181,8 +181,8 @@ module.exports = {
           ? parsed.sitemapindex.sitemap
           : [parsed.sitemapindex.sitemap];
 
-        // Fetch nested sitemaps (limit to first 5 to avoid overwhelming)
-        for (const sm of sitemaps.slice(0, 5)) {
+        // Fetch all nested sitemaps (no limit - filtering in Step 2)
+        for (const sm of sitemaps) {
           if (urls.length >= maxUrls) break;
 
           const loc = sm.loc;

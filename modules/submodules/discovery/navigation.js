@@ -40,7 +40,7 @@ module.exports = {
   options: [
     { name: 'scan_areas', type: 'multi-select', values: ['header', 'footer', 'sidebar'], default: ['header', 'footer'], description: 'Which nav areas to scan' },
     { name: 'follow_dropdowns', type: 'boolean', values: [true, false], default: true, description: 'Extract links inside dropdown menus' },
-    { name: 'max_urls_per_entity', type: 'number', default: 200, description: 'Max URLs to collect per entity' }
+    { name: 'max_urls_per_entity', type: 'number', default: 10000, description: 'Max URLs to collect per entity' }
   ],
 
   output_type: 'urls',

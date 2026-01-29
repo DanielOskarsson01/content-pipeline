@@ -52,7 +52,7 @@ module.exports = {
   async execute(input, config, context) {
     const { db, contentLibrary, logger } = context;
     const { entities } = input;
-    const { methods, max_urls = 100, allowed_domains, exclude_patterns } = config;
+    const { methods, max_urls = 10000, allowed_domains, exclude_patterns } = config;
 
     logger.info(`[url-discovery] Starting for ${entities.length} entities`, { methods, max_urls });
 

@@ -66,8 +66,8 @@ module.exports = {
   options: [
     { name: 'same_domain_only', type: 'boolean', values: [true, false], default: true, description: 'Only keep links on same domain' },
     { name: 'use_common_seeds', type: 'boolean', values: [true, false], default: false, description: 'Append common paths to base domains' },
-    { name: 'max_urls_per_entity', type: 'number', default: 300, description: 'Max URLs to collect per entity' },
-    { name: 'max_urls_per_seed', type: 'number', default: 50, description: 'Max URLs to collect per seed page' }
+    { name: 'max_urls_per_entity', type: 'number', default: 10000, description: 'Max URLs to collect per entity' },
+    { name: 'max_urls_per_seed', type: 'number', default: 500, description: 'Max URLs to collect per seed page' }
   ],
 
   output_type: 'urls',
