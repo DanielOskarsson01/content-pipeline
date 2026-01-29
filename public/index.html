@@ -220,10 +220,11 @@
                     <div class="border-b border-gray-100 pb-3">
                       <p class="font-semibold text-sm text-gray-800 mb-2">
                         <span x-text="entity.name"></span>
-                        <span class="text-xs text-gray-400 font-normal ml-2" x-text="'(' + entity.url_count + ' URLs)'"></span>
+                        <span class="text-xs text-gray-400 font-normal ml-2" x-text="'(' + (entity.urls?.length || entity.url_count || 0) + ' URLs)'"></span>
                       </p>
                       <div class="space-y-1 pl-2">
-                        <template x-for="(url, uidx) in entity.urls || []" :key="uidx">
+                        <!-- Use entity.urls if available, otherwise filter from raw results -->
+                        <template x-for="(url, uidx) in (entity.urls?.length ? entity.urls : (submoduleRunResult?.results || []).filter(r => r.entity_name === entity.name).map(r => r.url))" :key="uidx">
                           <a :href="url" target="_blank" rel="noopener"
                              class="block text-xs text-blue-600 hover:text-blue-800 hover:underline py-0.5 truncate"
                              :title="url"
@@ -2342,7 +2343,7 @@
               total: result.result_count,
               status: result.status
             },
-            items: (result.results || []).slice(0, 100).map(r => ({
+            items: (result.results || []).map(r => ({
               url: r.url,
               title: r.metadata?.title || r.url,
               description: r.metadata?.source || '',
@@ -3096,6 +3097,7 @@
               submodule_run_id: result.submodule_run_id,
               preview_mode: result.preview_mode,
               entities: Object.values(groupedEntities),
+              results: result.results || [], // Store raw results for fallback
               errors: result.results?._errors || []
             };
 
