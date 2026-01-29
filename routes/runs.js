@@ -347,9 +347,12 @@ router.get('/:id/step-context', async (req, res, next) => {
 
     const { data, error } = await query;
 
-    // Table might not exist yet - return empty gracefully
+    // If table doesn't exist, return clear error
     if (error && error.code === '42P01') {
-      return res.json(step_index !== undefined ? null : []);
+      return res.status(503).json({
+        error: 'Database not ready',
+        detail: 'step_context table does not exist. Run sql/mvp1b_schema.sql in Supabase.'
+      });
     }
     if (error) throw error;
 

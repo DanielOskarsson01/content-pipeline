@@ -170,15 +170,20 @@ router.post('/:type/:name/execute', async (req, res, next) => {
         created_at: new Date().toISOString()
       };
 
-      // Try to insert into submodule_runs (may not exist yet)
+      // Save to submodule_runs table
       const { error: insertErr } = await db
         .from('submodule_runs')
         .insert(runRecord);
 
-      // If table doesn't exist, just log warning
+      // If table doesn't exist, return clear error
       if (insertErr && insertErr.code === '42P01') {
-        console.warn('submodule_runs table does not exist, results not persisted');
+        return res.status(503).json({
+          error: 'Database not ready',
+          detail: 'submodule_runs table does not exist. Run sql/mvp1b_schema.sql in Supabase.',
+          results_lost: true
+        });
       }
+      if (insertErr) throw insertErr;
     }
 
     res.json({
@@ -188,7 +193,7 @@ router.post('/:type/:name/execute', async (req, res, next) => {
       status,
       result_count: results.length,
       duration_ms: duration,
-      results, // Return all results
+      results,
       logs,
       error
     });
