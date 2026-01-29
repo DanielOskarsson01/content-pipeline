@@ -92,7 +92,7 @@
         </div>
 
         <!-- Panel Content -->
-        <div class="flex-1 overflow-y-auto p-4">
+        <div class="flex-1 overflow-hidden p-4 flex flex-col">
 
           <!-- State: IDLE (before run) -->
           <div x-show="submoduleState === 'idle' || submoduleState === 'ready'">
@@ -222,15 +222,16 @@
           </div>
 
           <!-- State: VIEWING (showing results) -->
-          <div x-show="submoduleState === 'viewing'">
-            <div class="mb-4">
+          <div x-show="submoduleState === 'viewing'" class="flex flex-col h-full">
+            <!-- Results by Entity (compact) -->
+            <div class="mb-3 flex-shrink-0">
               <div class="flex items-center justify-between mb-2">
                 <p class="text-xs text-gray-600 font-medium uppercase">Results by entity</p>
                 <span class="text-xs text-gray-500" x-text="(submoduleRunResult?.result_count || 0) + ' total URLs'"></span>
               </div>
-              <div class="space-y-2 max-h-80 overflow-y-auto">
+              <div class="space-y-1 max-h-32 overflow-y-auto">
                 <template x-for="(entity, idx) in submoduleRunResult?.entities || []" :key="idx">
-                  <div class="bg-white rounded border p-3"
+                  <div class="bg-white rounded border px-3 py-2"
                        :class="entity.error ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200'">
                     <div class="flex items-center justify-between">
                       <span class="text-xs font-medium text-gray-800" x-text="entity.name"></span>
@@ -242,10 +243,10 @@
               </div>
             </div>
 
-            <!-- All Discovered URLs -->
-            <div class="mb-4">
-              <p class="text-xs text-gray-600 font-medium uppercase mb-2">Discovered URLs</p>
-              <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 max-h-96 overflow-y-auto">
+            <!-- All Discovered URLs (fills remaining space) -->
+            <div class="flex-1 flex flex-col min-h-0">
+              <p class="text-xs text-gray-600 font-medium uppercase mb-2 flex-shrink-0">Discovered URLs</p>
+              <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 flex-1 overflow-y-auto">
                 <template x-for="(url, idx) in (submoduleRunResult?.all_urls || [])" :key="idx">
                   <a :href="url" target="_blank" rel="noopener"
                      class="block text-[10px] text-blue-600 hover:text-blue-800 hover:underline py-0.5 truncate"
@@ -257,25 +258,25 @@
           </div>
 
           <!-- State: APPROVED (show results with approval badge) -->
-          <div x-show="submoduleState === 'approved'">
-            <!-- Approval Badge -->
-            <div class="mb-4 p-3 bg-green-50 rounded-lg border border-green-200">
+          <div x-show="submoduleState === 'approved'" class="flex flex-col h-full">
+            <!-- Approval Badge (compact) -->
+            <div class="mb-3 p-2 bg-green-50 rounded-lg border border-green-200 flex-shrink-0">
               <div class="flex items-center gap-2 text-green-700">
-                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
                 <span class="text-sm font-medium">Approved</span>
                 <span class="text-xs text-green-600" x-text="'(' + (submoduleRunResult?.result_count || 0) + ' URLs)'"></span>
               </div>
             </div>
 
-            <!-- Results by Entity -->
-            <div class="mb-4" x-show="submoduleRunResult?.entities?.length > 0">
+            <!-- Results by Entity (compact) -->
+            <div class="mb-3 flex-shrink-0" x-show="submoduleRunResult?.entities?.length > 0">
               <div class="flex items-center justify-between mb-2">
                 <p class="text-xs text-gray-600 font-medium uppercase">Results by entity</p>
                 <span class="text-xs text-gray-500" x-text="(submoduleRunResult?.result_count || 0) + ' total URLs'"></span>
               </div>
-              <div class="space-y-2 max-h-40 overflow-y-auto">
+              <div class="space-y-1 max-h-32 overflow-y-auto">
                 <template x-for="(entity, idx) in submoduleRunResult?.entities || []" :key="idx">
-                  <div class="bg-white rounded border border-gray-200 p-3">
+                  <div class="bg-white rounded border border-gray-200 px-3 py-2">
                     <div class="flex items-center justify-between">
                       <span class="text-xs font-medium text-gray-800" x-text="entity.name"></span>
                       <span class="text-xs text-green-600" x-text="entity.url_count + ' URLs'"></span>
@@ -285,10 +286,10 @@
               </div>
             </div>
 
-            <!-- All Discovered URLs -->
-            <div class="mb-4" x-show="submoduleRunResult?.all_urls?.length > 0">
-              <p class="text-xs text-gray-600 font-medium uppercase mb-2">Discovered URLs</p>
-              <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 max-h-64 overflow-y-auto">
+            <!-- All Discovered URLs (fills remaining space) -->
+            <div class="flex-1 flex flex-col min-h-0" x-show="submoduleRunResult?.all_urls?.length > 0">
+              <p class="text-xs text-gray-600 font-medium uppercase mb-2 flex-shrink-0">Discovered URLs</p>
+              <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 flex-1 overflow-y-auto">
                 <template x-for="(url, idx) in (submoduleRunResult?.all_urls || [])" :key="idx">
                   <a :href="url" target="_blank" rel="noopener"
                      class="block text-[10px] text-blue-600 hover:text-blue-800 hover:underline py-0.5 truncate"
@@ -298,7 +299,7 @@
             </div>
 
             <!-- Run Again Option -->
-            <div class="mt-4 pt-4 border-t border-gray-200">
+            <div class="mt-3 pt-3 border-t border-gray-200 flex-shrink-0">
               <button @click="submoduleState = 'idle'; submoduleRunResult = null; activeSubmodule.status = 'pending'; activeSubmodule.result_count = 0; activeSubmodule.runResult = null;"
                       class="text-xs text-gray-500 hover:text-gray-700 underline">
                 Run again with different input

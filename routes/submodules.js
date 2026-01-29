@@ -188,7 +188,7 @@ router.post('/:type/:name/execute', async (req, res, next) => {
       status,
       result_count: results.length,
       duration_ms: duration,
-      results: results.slice(0, 100), // Return first 100 for immediate display
+      results, // Return all results
       logs,
       error
     });
