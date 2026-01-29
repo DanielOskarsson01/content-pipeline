@@ -65,16 +65,16 @@ router.get('/', async (req, res, next) => {
 /**
  * POST /api/submodules/:type/:name/execute
  * Execute a single submodule for given entities
- * Body: { run_id, run_entity_ids: string[], config?: object }
+ * Body: { run_id?, run_entity_ids?: string[], entities?: object[], config?: object }
+ *
+ * Two modes:
+ * 1. With run_id + run_entity_ids: Load entities from database, save results
+ * 2. With entities array directly: Preview mode, no database save
  */
 router.post('/:type/:name/execute', async (req, res, next) => {
   try {
     const { type, name } = req.params;
-    const { run_id, run_entity_ids, config = {} } = req.body;
-
-    if (!run_id || !run_entity_ids || run_entity_ids.length === 0) {
-      return res.status(400).json({ error: 'run_id and run_entity_ids are required' });
-    }
+    const { run_id, run_entity_ids, entities: directEntities, config = {} } = req.body;
 
     // Load submodule
     const submodule = loadSubmodule(type, name);
@@ -82,25 +82,49 @@ router.post('/:type/:name/execute', async (req, res, next) => {
       return res.status(404).json({ error: `Submodule not found: ${type}/${name}` });
     }
 
-    // Fetch run_entities with their snapshots
-    const { data: runEntities, error: reErr } = await db
-      .from('run_entities')
-      .select('*')
-      .in('id', run_entity_ids);
+    let entities = [];
+    let isPreviewMode = false;
 
-    if (reErr) throw reErr;
-    if (!runEntities || runEntities.length === 0) {
-      return res.status(404).json({ error: 'Run entities not found' });
+    // Mode 1: Direct entities (preview mode - no database)
+    if (directEntities && Array.isArray(directEntities) && directEntities.length > 0) {
+      isPreviewMode = true;
+      entities = directEntities.map((e, idx) => ({
+        id: e.id || `preview-${idx}`,
+        name: e.name || e.entity_name || 'Unknown',
+        entity_name: e.name || e.entity_name,
+        website: e.website,
+        domain: e.website ? new URL(e.website.startsWith('http') ? e.website : 'https://' + e.website).hostname : null,
+        metadata: e.metadata || e,
+        seed_urls: e.seed_urls || []
+      }));
     }
+    // Mode 2: Load from database
+    else if (run_id && run_entity_ids && run_entity_ids.length > 0) {
+      const { data: runEntities, error: reErr } = await db
+        .from('run_entities')
+        .select('*')
+        .in('id', run_entity_ids);
 
-    // Build entities array from snapshots
-    const entities = runEntities.map(re => ({
-      id: re.entity_snapshot?.id || re.id,
-      name: re.entity_snapshot?.name || 'Unknown',
-      metadata: re.entity_snapshot?.metadata || {},
-      domain: re.entity_snapshot?.metadata?.domain,
-      seed_urls: re.entity_snapshot?.metadata?.seed_urls || []
-    }));
+      if (reErr) throw reErr;
+      if (!runEntities || runEntities.length === 0) {
+        return res.status(404).json({ error: 'Run entities not found' });
+      }
+
+      entities = runEntities.map(re => ({
+        id: re.entity_snapshot?.id || re.id,
+        name: re.entity_snapshot?.name || 'Unknown',
+        entity_name: re.entity_snapshot?.name,
+        website: re.entity_snapshot?.metadata?.website,
+        metadata: re.entity_snapshot?.metadata || {},
+        domain: re.entity_snapshot?.metadata?.domain,
+        seed_urls: re.entity_snapshot?.metadata?.seed_urls || []
+      }));
+    }
+    else {
+      return res.status(400).json({
+        error: 'Provide either "entities" array for preview, or "run_id" + "run_entity_ids" for database mode'
+      });
+    }
 
     // Create logger
     const logs = [];
@@ -124,37 +148,44 @@ router.post('/:type/:name/execute', async (req, res, next) => {
 
     const duration = Date.now() - startTime;
 
-    // Store results in submodule_runs table (create if needed)
-    const runRecord = {
-      id: require('crypto').randomUUID(),
-      run_id,
-      submodule_type: type,
-      submodule_name: name,
-      run_entity_ids,
-      config,
-      status: error ? 'failed' : 'completed',
-      result_count: results.length,
-      results: results.slice(0, 1000), // Cap stored results
-      logs,
-      duration_ms: duration,
-      error,
-      created_at: new Date().toISOString()
-    };
+    // Generate a run ID for tracking
+    const submoduleRunId = require('crypto').randomUUID();
+    const status = error ? 'failed' : 'completed';
 
-    // Try to insert into submodule_runs (may not exist yet)
-    const { error: insertErr } = await db
-      .from('submodule_runs')
-      .insert(runRecord);
+    // Only store to database if we have a run_id (not preview mode)
+    if (run_id) {
+      const runRecord = {
+        id: submoduleRunId,
+        run_id,
+        submodule_type: type,
+        submodule_name: name,
+        run_entity_ids,
+        config,
+        status,
+        result_count: results.length,
+        results: results.slice(0, 1000), // Cap stored results
+        logs,
+        duration_ms: duration,
+        error,
+        created_at: new Date().toISOString()
+      };
 
-    // If table doesn't exist, just return the results directly
-    if (insertErr && insertErr.code === '42P01') {
-      console.warn('submodule_runs table does not exist, returning results directly');
+      // Try to insert into submodule_runs (may not exist yet)
+      const { error: insertErr } = await db
+        .from('submodule_runs')
+        .insert(runRecord);
+
+      // If table doesn't exist, just log warning
+      if (insertErr && insertErr.code === '42P01') {
+        console.warn('submodule_runs table does not exist, results not persisted');
+      }
     }
 
     res.json({
-      submodule_run_id: runRecord.id,
+      submodule_run_id: submoduleRunId,
+      preview_mode: !run_id,
       submodule: `${type}/${name}`,
-      status: runRecord.status,
+      status,
       result_count: results.length,
       duration_ms: duration,
       results: results.slice(0, 100), // Return first 100 for immediate display

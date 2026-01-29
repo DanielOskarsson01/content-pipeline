@@ -130,7 +130,12 @@
                        @drop.prevent="handleCsvDrop($event)">
                     <input type="file" x-ref="csvUploadInput" accept=".csv" class="hidden" @change="handleCsvUpload($event)">
                     <p class="text-xs text-gray-500">Drop CSV here or click to browse</p>
-                    <p class="text-[10px] text-gray-400 mt-1">entities_template.csv format</p>
+                  </div>
+                  <!-- CSV Format Help -->
+                  <div class="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <p class="text-[10px] text-blue-800 font-medium mb-1">CSV Format:</p>
+                    <p class="text-[10px] text-blue-700 font-mono">entity_name,website,linkedin,youtube</p>
+                    <p class="text-[10px] text-blue-600 mt-1">Required: entity_name. Optional: website, linkedin, youtube, twitter, category</p>
                   </div>
                   <div x-show="uploadedCsvInfo" class="mt-2 flex items-center gap-2 text-green-700 text-xs">
                     <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
@@ -191,6 +196,22 @@
                   </div>
                 </template>
               </div>
+            </div>
+
+            <!-- RUN Button -->
+            <div class="mt-6">
+              <!-- Warning if no project selected -->
+              <div x-show="!selectedProject && !useMockData" class="mb-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                <p class="text-xs text-yellow-800">Create or select a project in Step 0 first to save results to database.</p>
+                <p class="text-[10px] text-yellow-600 mt-1">You can still run a preview without saving.</p>
+              </div>
+              <button @click="runActiveSubmodule()"
+                      :disabled="!canRunSubmodule()"
+                      :class="canRunSubmodule() ? 'bg-brand-600 hover:bg-brand-700 text-white' : 'bg-gray-200 text-gray-400 cursor-not-allowed'"
+                      class="w-full py-3 rounded-lg font-medium text-sm transition-colors">
+                <span x-show="!canRunSubmodule()">Enter URLs or upload CSV to run</span>
+                <span x-show="canRunSubmodule()">Run <span x-text="activeSubmodule?.name"></span></span>
+              </button>
             </div>
 
           </div>
@@ -3093,14 +3114,24 @@
               same_domain_only: this.submoduleOptions.same_domain
             };
 
+            // Build request body based on mode
+            // Preview mode: send entities directly (no database storage)
+            // Database mode: send run_id and run_entity_ids (results saved)
+            const requestBody = this.currentRunId
+              ? {
+                  run_id: this.currentRunId,
+                  run_entity_ids: this.currentRunEntityIds?.length > 0 ? this.currentRunEntityIds : entities.map(e => e.id),
+                  config
+                }
+              : {
+                  entities: entities,
+                  config
+                };
+
             const res = await fetch(`/api/submodules/discovery/${this.activeSubmodule.id}/execute`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                run_id: this.currentRunId,
-                run_entity_ids: this.currentRunEntityIds?.length > 0 ? this.currentRunEntityIds : entities.map(e => e.id),
-                config
-              })
+              body: JSON.stringify(requestBody)
             });
 
             if (!res.ok) {
