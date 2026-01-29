@@ -163,7 +163,7 @@ router.post('/:type/:name/execute', async (req, res, next) => {
         config,
         status,
         result_count: results.length,
-        results: results.slice(0, 1000), // Cap stored results
+        results, // Store all results - filtering happens in Step 2
         logs,
         duration_ms: duration,
         error,

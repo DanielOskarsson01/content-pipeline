@@ -64,7 +64,7 @@
 
   <div x-data="app()" x-init="init()" x-cloak>
 
-    <!-- Submodule Overlay Panel (New Flow: RUN → SEE RESULTS → APPROVE) -->
+    <!-- Submodule Overlay Panel - Accordion Design -->
     <div x-show="submodulePanelOpen" class="fixed inset-0 z-50" @keydown.escape.window="closeSubmodulePanel()">
       <!-- Backdrop -->
       <div class="fixed inset-0 bg-black/30 panel-backdrop"
@@ -72,290 +72,203 @@
            @click="closeSubmodulePanel()"></div>
 
       <!-- Panel -->
-      <div class="fixed inset-y-0 left-0 w-full max-w-lg bg-white shadow-2xl slide-panel flex flex-col"
+      <div class="fixed inset-y-0 left-0 w-full max-w-lg bg-gray-100 shadow-2xl slide-panel flex flex-col"
            :class="submodulePanelOpen ? 'open' : ''">
 
-        <!-- Panel Header -->
-        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
-          <div class="flex items-center gap-2">
-            <button @click="closeSubmodulePanel()" class="text-gray-400 hover:text-gray-600">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-            </button>
-            <div>
-              <h3 class="text-sm font-semibold text-gray-900" x-text="activeSubmodule?.name || 'Submodule'"></h3>
-              <p class="text-[10px] text-gray-500" x-text="activeSubmodule?.description || ''"></p>
-            </div>
+        <!-- Panel Header - Teal -->
+        <div class="bg-[#0891B2] text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
+          <div>
+            <h3 class="text-base font-semibold" x-text="'Step1 - ' + (activeSubmodule?.name || 'Submodule')"></h3>
+            <p class="text-xs text-white/70" x-text="selectedProject?.name || 'Project name'"></p>
           </div>
-          <button @click="closeSubmodulePanel()" class="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          <button @click="closeSubmodulePanel()" class="p-1 text-white/80 hover:text-white rounded hover:bg-white/10">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
 
-        <!-- Panel Content -->
-        <div class="flex-1 overflow-hidden p-4 flex flex-col">
+        <!-- Submodule Description -->
+        <p class="px-4 py-2 text-xs text-gray-500 bg-white border-b flex-shrink-0" x-text="activeSubmodule?.description || ''"></p>
 
-          <!-- State: IDLE (before run) -->
-          <div x-show="submoduleState === 'idle' || submoduleState === 'ready'">
+        <!-- Panel Content - Accordions -->
+        <div class="flex-1 flex flex-col overflow-hidden p-3 gap-3">
 
-            <!-- Input Data Section -->
-            <div class="mb-4">
-              <p class="text-xs text-gray-600 font-medium mb-2 uppercase">Input data</p>
-              <div class="bg-gray-50 rounded-lg border border-gray-200 p-4">
-
-                <!-- Show existing entity context if available -->
-                <div x-show="entityContext && entityContext.entities?.length > 0" class="mb-3">
-                  <div class="flex items-center gap-2 text-green-700 mb-2">
-                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                    <span class="text-xs font-medium" x-text="entityContext.entities.length + ' entities loaded'"></span>
-                  </div>
-                  <p class="text-[10px] text-gray-500 mb-2" x-text="(entityContext.stats?.by_column?.website || 0) + ' have website (required for this submodule)'"></p>
-                  <div class="flex gap-2">
-                    <button @click="useExistingEntities()" class="text-xs bg-brand-600 hover:bg-brand-700 text-white px-3 py-1.5 rounded">Use these</button>
-                    <button @click="showUploadForm = true" class="text-xs text-gray-600 hover:text-gray-800 px-3 py-1.5 rounded border border-gray-300 hover:border-gray-400">Upload different</button>
-                  </div>
+          <!-- Accordion 1: Input Data -->
+          <div class="bg-white rounded-lg border border-gray-200 flex-shrink-0" :class="{'flex-1 flex flex-col min-h-0': panelAccordion === 'input'}">
+            <button @click="panelAccordion = panelAccordion === 'input' ? null : 'input'"
+                    class="w-full flex items-center justify-between px-4 py-3 bg-[#0891B2] text-white rounded-t-lg">
+              <div class="flex items-center gap-3">
+                <span class="font-semibold text-sm">Input data</span>
+                <span class="text-xs text-white/70" x-text="entityContext?.entities?.length ? entityContext.entities.length + ' entities' : 'No data'"></span>
+              </div>
+              <div class="w-6 h-6 rounded-full bg-[#E11D73] flex items-center justify-center">
+                <span class="text-white font-bold text-sm" x-text="panelAccordion === 'input' ? '−' : '+'"></span>
+              </div>
+            </button>
+            <div x-show="panelAccordion === 'input'" class="p-4 flex-1 overflow-y-auto">
+              <!-- Entity context exists -->
+              <div x-show="entityContext && entityContext.entities?.length > 0">
+                <div class="flex items-center gap-2 text-green-700 mb-2">
+                  <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                  <span class="text-xs font-medium" x-text="entityContext.entities.length + ' entities loaded'"></span>
                 </div>
-
-                <!-- Upload form (shown if no context or user wants to upload different) -->
-                <div x-show="!entityContext || !entityContext.entities?.length || showUploadForm">
-                  <div class="mb-3">
-                    <label class="block text-xs text-gray-600 mb-1">Paste URLs (one per line)</label>
-                    <textarea x-model="submoduleInputUrls" rows="3" placeholder="https://betsson.com&#10;https://evolution.com&#10;https://leovegas.com"
-                      class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm font-mono focus:outline-none focus:border-brand-500"></textarea>
-                    <button x-show="submoduleInputUrls.trim().length > 0"
-                            @click="saveUrlsAsEntities()"
-                            class="mt-2 w-full bg-brand-600 hover:bg-brand-700 text-white py-2 rounded text-sm font-medium">
-                      Save URLs
-                    </button>
-                  </div>
-                  <div class="text-center text-[10px] text-gray-400 mb-3">— or —</div>
-                  <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-brand-400 transition-colors cursor-pointer"
-                       @click="$refs.csvUploadInput.click()"
-                       @dragover.prevent="$event.target.classList.add('border-brand-500')"
-                       @dragleave="$event.target.classList.remove('border-brand-500')"
-                       @drop.prevent="handleCsvDrop($event)">
-                    <input type="file" x-ref="csvUploadInput" accept=".csv" class="hidden" @change="handleCsvUpload($event)">
-                    <p class="text-xs text-gray-500">Drop CSV here or click to browse</p>
-                  </div>
-                  <!-- CSV Format Help -->
-                  <div class="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
-                    <p class="text-[10px] text-blue-800 font-medium mb-1">CSV Format:</p>
-                    <p class="text-[10px] text-blue-700 font-mono">entity_name,website,linkedin,youtube</p>
-                    <p class="text-[10px] text-blue-600 mt-1">Required: entity_name. Optional: website, linkedin, youtube, twitter, category</p>
-                  </div>
-                  <div x-show="uploadedCsvInfo" class="mt-2 flex items-center gap-2 text-green-700 text-xs">
-                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                    <span x-text="uploadedCsvInfo"></span>
-                  </div>
+                <p class="text-[10px] text-gray-500 mb-3" x-text="(entityContext.stats?.by_column?.website || 0) + ' have website'"></p>
+                <button @click="showUploadForm = true" class="text-xs text-gray-600 hover:text-gray-800 underline">Upload different data</button>
+              </div>
+              <!-- Upload form -->
+              <div x-show="!entityContext || !entityContext.entities?.length || showUploadForm">
+                <div class="mb-3">
+                  <label class="block text-xs text-gray-600 mb-1">Paste URLs (one per line)</label>
+                  <textarea x-model="submoduleInputUrls" rows="4" placeholder="https://betsson.com&#10;https://evolution.com"
+                    class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm font-mono focus:outline-none focus:border-[#0891B2]"></textarea>
+                  <button x-show="submoduleInputUrls.trim().length > 0"
+                          @click="saveUrlsAsEntities()"
+                          class="mt-2 w-full bg-[#0891B2] hover:bg-[#0891B2]/90 text-white py-2 rounded text-sm font-medium">
+                    Save URLs
+                  </button>
+                </div>
+                <div class="text-center text-[10px] text-gray-400 mb-3">— or —</div>
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-[#0891B2] cursor-pointer"
+                     @click="$refs.csvUploadInput.click()">
+                  <input type="file" x-ref="csvUploadInput" accept=".csv" class="hidden" @change="handleCsvUpload($event)">
+                  <p class="text-xs text-gray-500">Drop CSV or click to browse</p>
+                </div>
+                <div x-show="uploadedCsvInfo" class="mt-2 flex items-center gap-2 text-green-700 text-xs">
+                  <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                  <span x-text="uploadedCsvInfo"></span>
                 </div>
               </div>
             </div>
+          </div>
 
-            <!-- Advanced Options (collapsible) -->
-            <div class="mb-4">
-              <button @click="showAdvancedOptions = !showAdvancedOptions"
-                      class="flex items-center gap-2 text-xs text-gray-600 hover:text-gray-800">
-                <span x-text="showAdvancedOptions ? '▼' : '▶'"></span>
-                <span>Advanced options</span>
-              </button>
-              <div x-show="showAdvancedOptions" x-transition class="mt-3 bg-gray-50 rounded-lg border border-gray-200 p-4">
-                <template x-if="activeSubmodule?.id === 'sitemap'">
-                  <div class="space-y-3">
+          <!-- Accordion 2: Advanced Options -->
+          <div class="bg-white rounded-lg border border-gray-200 flex-shrink-0" :class="{'flex-1 flex flex-col min-h-0': panelAccordion === 'options'}">
+            <button @click="panelAccordion = panelAccordion === 'options' ? null : 'options'"
+                    class="w-full flex items-center justify-between px-4 py-3 bg-[#0891B2] text-white rounded-t-lg">
+              <div class="flex items-center gap-3">
+                <span class="font-semibold text-sm">Advanced options</span>
+                <span class="text-xs text-white/70">Default settings</span>
+              </div>
+              <div class="w-6 h-6 rounded-full bg-[#E11D73] flex items-center justify-center">
+                <span class="text-white font-bold text-sm" x-text="panelAccordion === 'options' ? '−' : '+'"></span>
+              </div>
+            </button>
+            <div x-show="panelAccordion === 'options'" class="p-4 flex-1 overflow-y-auto">
+              <template x-if="activeSubmodule?.id === 'sitemap'">
+                <div class="space-y-3">
+                  <div>
+                    <label class="block text-xs text-gray-600 mb-1">Sitemap location</label>
+                    <select x-model="submoduleOptions.sitemap_location" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm">
+                      <option value="auto">Auto-detect</option>
+                      <option value="custom">Custom URL</option>
+                    </select>
+                  </div>
+                  <label class="flex items-center gap-2 text-xs">
+                    <input type="checkbox" x-model="submoduleOptions.include_nested" class="rounded border-gray-300 text-[#0891B2]">
+                    Include nested sitemaps
+                  </label>
+                </div>
+              </template>
+              <template x-if="activeSubmodule?.id === 'navigation'">
+                <div class="space-y-3">
+                  <div>
+                    <label class="block text-xs text-gray-600 mb-1">Scan areas</label>
+                    <div class="flex flex-wrap gap-3">
+                      <label class="flex items-center gap-1 text-xs"><input type="checkbox" x-model="submoduleOptions.scan_header" class="rounded border-gray-300 text-[#0891B2]"> Header</label>
+                      <label class="flex items-center gap-1 text-xs"><input type="checkbox" x-model="submoduleOptions.scan_footer" class="rounded border-gray-300 text-[#0891B2]"> Footer</label>
+                      <label class="flex items-center gap-1 text-xs"><input type="checkbox" x-model="submoduleOptions.scan_sidebar" class="rounded border-gray-300 text-[#0891B2]"> Sidebar</label>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <template x-if="activeSubmodule?.id === 'seed-expansion'">
+                <div class="space-y-3">
+                  <label class="flex items-center gap-2 text-xs">
+                    <input type="checkbox" x-model="submoduleOptions.same_domain" class="rounded border-gray-300 text-[#0891B2]">
+                    Same domain only
+                  </label>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Accordion 3: Results (expands to fill remaining space when open) -->
+          <div class="bg-white rounded-lg border border-gray-200"
+               :class="panelAccordion === 'results' || submoduleRunResult ? 'flex-1 flex flex-col min-h-0' : 'flex-shrink-0'"
+               x-show="submoduleRunResult || submoduleState === 'running' || submoduleState === 'completed'">
+            <button @click="panelAccordion = panelAccordion === 'results' ? null : 'results'"
+                    class="w-full flex items-center justify-between px-4 py-3 bg-[#E11D73] text-white rounded-t-lg">
+              <div class="flex items-center gap-3">
+                <span class="font-semibold text-sm">Results</span>
+                <span class="text-xs text-white/70" x-text="submoduleRunResult ? (submoduleRunResult.result_count || 0) + ' URLs' : ''"></span>
+              </div>
+              <div class="w-6 h-6 rounded-full bg-white flex items-center justify-center">
+                <span class="text-[#E11D73] font-bold text-sm" x-text="panelAccordion === 'results' ? '−' : '+'"></span>
+              </div>
+            </button>
+            <div x-show="panelAccordion === 'results'" class="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <!-- Running state -->
+              <div x-show="submoduleState === 'running'" class="p-4 text-center">
+                <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-[#E11D73] mb-2"></div>
+                <p class="text-xs text-gray-500">Processing...</p>
+              </div>
+              <!-- Results content -->
+              <div x-show="submoduleRunResult" class="flex-1 flex flex-col min-h-0 p-4 overflow-hidden">
+                <p class="text-xs text-gray-600 font-medium uppercase mb-2 flex-shrink-0">URLs</p>
+                <div class="flex-1 overflow-y-auto space-y-3">
+                  <!-- Group URLs by entity/domain -->
+                  <template x-for="(entity, idx) in submoduleRunResult?.entities || []" :key="idx">
                     <div>
-                      <label class="block text-xs text-gray-600 mb-1">Sitemap location</label>
-                      <select x-model="submoduleOptions.sitemap_location" class="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm">
-                        <option value="auto">Auto-detect</option>
-                        <option value="custom">Custom URL</option>
-                      </select>
+                      <p class="font-semibold text-sm text-gray-800 mb-1" x-text="entity.name"></p>
+                      <template x-for="(url, uidx) in (submoduleRunResult?.all_urls || []).filter(u => u.includes(entity.name.replace('www.', '').split('/')[0]))" :key="uidx">
+                        <a :href="url" target="_blank" rel="noopener"
+                           class="block text-xs text-blue-600 hover:text-blue-800 hover:underline py-0.5"
+                           x-text="url"></a>
+                      </template>
                     </div>
-                    <div class="flex items-center gap-2">
-                      <input type="checkbox" x-model="submoduleOptions.include_nested" id="includeNested" class="rounded border-gray-300 text-brand-600">
-                      <label for="includeNested" class="text-xs text-gray-700">Include nested sitemaps</label>
-                    </div>
-                  </div>
-                </template>
-                <template x-if="activeSubmodule?.id === 'navigation'">
-                  <div class="space-y-3">
+                  </template>
+                  <!-- Fallback: show all URLs if no entity grouping -->
+                  <template x-if="!submoduleRunResult?.entities?.length && submoduleRunResult?.all_urls?.length">
                     <div>
-                      <label class="block text-xs text-gray-600 mb-1">Scan areas</label>
-                      <div class="flex flex-wrap gap-2">
-                        <label class="flex items-center gap-1 text-xs"><input type="checkbox" x-model="submoduleOptions.scan_header" class="rounded border-gray-300 text-brand-600"> Header</label>
-                        <label class="flex items-center gap-1 text-xs"><input type="checkbox" x-model="submoduleOptions.scan_footer" class="rounded border-gray-300 text-brand-600"> Footer</label>
-                        <label class="flex items-center gap-1 text-xs"><input type="checkbox" x-model="submoduleOptions.scan_sidebar" class="rounded border-gray-300 text-brand-600"> Sidebar</label>
-                      </div>
+                      <template x-for="(url, idx) in submoduleRunResult.all_urls" :key="idx">
+                        <a :href="url" target="_blank" rel="noopener"
+                           class="block text-xs text-blue-600 hover:text-blue-800 hover:underline py-0.5"
+                           x-text="url"></a>
+                      </template>
                     </div>
-                    <div class="flex items-center gap-2">
-                      <input type="checkbox" x-model="submoduleOptions.follow_dropdowns" id="followDropdowns" class="rounded border-gray-300 text-brand-600">
-                      <label for="followDropdowns" class="text-xs text-gray-700">Follow dropdown menus</label>
-                    </div>
-                  </div>
-                </template>
-                <template x-if="activeSubmodule?.id === 'seed-expansion'">
-                  <div class="space-y-3">
-                    <div class="flex items-center gap-2">
-                      <input type="checkbox" x-model="submoduleOptions.same_domain" id="sameDomain" class="rounded border-gray-300 text-brand-600">
-                      <label for="sameDomain" class="text-xs text-gray-700">Same domain only</label>
-                    </div>
-                    <button @click="useCommonSeeds()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded border border-gray-300">
-                      Use common seeds (/about, /products, /news...)
-                    </button>
-                  </div>
-                </template>
+                  </template>
+                </div>
+                <!-- Reject button -->
+                <button @click="rejectSubmoduleRun(); panelAccordion = 'input';"
+                        class="mt-3 w-full bg-[#E11D73] hover:bg-[#E11D73]/90 text-white py-2 rounded text-sm font-medium flex-shrink-0">
+                  Reject and try with new settings or uploads
+                </button>
               </div>
-            </div>
-
-          </div>
-
-          <!-- State: RUNNING -->
-          <div x-show="submoduleState === 'running'" class="text-center py-8">
-            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600 mb-4"></div>
-            <p class="text-sm text-gray-700">Running <span x-text="activeSubmodule?.name"></span>...</p>
-            <p class="text-xs text-gray-500 mt-1">Processing entities</p>
-          </div>
-
-          <!-- State: COMPLETED (show "See Results" prompt) -->
-          <div x-show="submoduleState === 'completed'" class="text-center py-8">
-            <div class="flex items-center justify-center gap-2 text-green-600 mb-4">
-              <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-            </div>
-            <p class="text-sm font-medium text-gray-900" x-text="'Run complete: ' + (submoduleRunResult?.result_count || 0) + ' URLs found'"></p>
-            <p x-show="submoduleRunResult?.errors?.length > 0" class="text-xs text-yellow-600 mt-1" x-text="submoduleRunResult.errors.length + ' entity/entities had errors'"></p>
-          </div>
-
-          <!-- State: VIEWING (showing results) -->
-          <div x-show="submoduleState === 'viewing'" class="flex flex-col h-full">
-            <!-- Results by Entity (compact) -->
-            <div class="mb-3 flex-shrink-0">
-              <div class="flex items-center justify-between mb-2">
-                <p class="text-xs text-gray-600 font-medium uppercase">Results by entity</p>
-                <span class="text-xs text-gray-500" x-text="(submoduleRunResult?.result_count || 0) + ' total URLs'"></span>
-              </div>
-              <div class="space-y-1 max-h-32 overflow-y-auto">
-                <template x-for="(entity, idx) in submoduleRunResult?.entities || []" :key="idx">
-                  <div class="bg-white rounded border px-3 py-2"
-                       :class="entity.error ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200'">
-                    <div class="flex items-center justify-between">
-                      <span class="text-xs font-medium text-gray-800" x-text="entity.name"></span>
-                      <span x-show="!entity.error" class="text-xs text-green-600" x-text="entity.url_count + ' URLs'"></span>
-                      <span x-show="entity.error" class="text-xs text-yellow-600" x-text="entity.error"></span>
-                    </div>
-                  </div>
-                </template>
-              </div>
-            </div>
-
-            <!-- All Discovered URLs (fills remaining space) -->
-            <div class="flex-1 flex flex-col min-h-0">
-              <p class="text-xs text-gray-600 font-medium uppercase mb-2 flex-shrink-0">Discovered URLs</p>
-              <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 flex-1 overflow-y-auto">
-                <template x-for="(url, idx) in (submoduleRunResult?.all_urls || [])" :key="idx">
-                  <a :href="url" target="_blank" rel="noopener"
-                     class="block text-[10px] text-blue-600 hover:text-blue-800 hover:underline py-0.5 truncate"
-                     x-text="url"></a>
-                </template>
-                <p x-show="!submoduleRunResult?.all_urls?.length" class="text-[10px] text-gray-400">No URLs discovered</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- State: APPROVED (show results with approval badge) -->
-          <div x-show="submoduleState === 'approved'" class="flex flex-col h-full">
-            <!-- Approval Badge (compact) -->
-            <div class="mb-3 p-2 bg-green-50 rounded-lg border border-green-200 flex-shrink-0">
-              <div class="flex items-center gap-2 text-green-700">
-                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                <span class="text-sm font-medium">Approved</span>
-                <span class="text-xs text-green-600" x-text="'(' + (submoduleRunResult?.result_count || 0) + ' URLs)'"></span>
-              </div>
-            </div>
-
-            <!-- Results by Entity (compact) -->
-            <div class="mb-3 flex-shrink-0" x-show="submoduleRunResult?.entities?.length > 0">
-              <div class="flex items-center justify-between mb-2">
-                <p class="text-xs text-gray-600 font-medium uppercase">Results by entity</p>
-                <span class="text-xs text-gray-500" x-text="(submoduleRunResult?.result_count || 0) + ' total URLs'"></span>
-              </div>
-              <div class="space-y-1 max-h-32 overflow-y-auto">
-                <template x-for="(entity, idx) in submoduleRunResult?.entities || []" :key="idx">
-                  <div class="bg-white rounded border border-gray-200 px-3 py-2">
-                    <div class="flex items-center justify-between">
-                      <span class="text-xs font-medium text-gray-800" x-text="entity.name"></span>
-                      <span class="text-xs text-green-600" x-text="entity.url_count + ' URLs'"></span>
-                    </div>
-                  </div>
-                </template>
-              </div>
-            </div>
-
-            <!-- All Discovered URLs (fills remaining space) -->
-            <div class="flex-1 flex flex-col min-h-0" x-show="submoduleRunResult?.all_urls?.length > 0">
-              <p class="text-xs text-gray-600 font-medium uppercase mb-2 flex-shrink-0">Discovered URLs</p>
-              <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 flex-1 overflow-y-auto">
-                <template x-for="(url, idx) in (submoduleRunResult?.all_urls || [])" :key="idx">
-                  <a :href="url" target="_blank" rel="noopener"
-                     class="block text-[10px] text-blue-600 hover:text-blue-800 hover:underline py-0.5 truncate"
-                     x-text="url"></a>
-                </template>
-              </div>
-            </div>
-
-            <!-- Run Again Option -->
-            <div class="mt-3 pt-3 border-t border-gray-200 flex-shrink-0">
-              <button @click="submoduleState = 'idle'; submoduleRunResult = null; activeSubmodule.status = 'pending'; activeSubmodule.result_count = 0; activeSubmodule.runResult = null;"
-                      class="text-xs text-gray-500 hover:text-gray-700 underline">
-                Run again with different input
-              </button>
             </div>
           </div>
 
         </div>
 
-        <!-- Panel Footer with state-based buttons -->
-        <div class="border-t border-gray-200 px-4 py-3 bg-gray-50">
-          <div class="flex items-center justify-end gap-2">
-
-            <!-- IDLE/READY: Show RUN button -->
-            <template x-if="submoduleState === 'idle' || submoduleState === 'ready'">
-              <button @click="runActiveSubmodule()"
-                      :disabled="!canRunSubmodule()"
-                      :class="canRunSubmodule() ? 'bg-brand-600 hover:bg-brand-700' : 'bg-gray-300 cursor-not-allowed'"
-                      class="text-white px-6 py-2 rounded text-sm font-medium">
-                RUN TASK
-              </button>
-            </template>
-
-            <!-- RUNNING: Show loading state -->
-            <template x-if="submoduleState === 'running'">
-              <button disabled class="bg-gray-300 text-white px-6 py-2 rounded text-sm font-medium cursor-not-allowed">
-                Running...
-              </button>
-            </template>
-
-            <!-- COMPLETED: Show SEE RESULTS button -->
-            <template x-if="submoduleState === 'completed'">
-              <button @click="submoduleState = 'viewing'" class="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded text-sm font-medium">
-                SEE RESULTS
-              </button>
-            </template>
-
-            <!-- VIEWING: Show APPROVE button -->
-            <template x-if="submoduleState === 'viewing'">
-              <div class="flex gap-2">
-                <button @click="rejectSubmoduleRun()" class="text-red-600 hover:text-red-800 px-4 py-2 rounded text-sm border border-red-200 hover:border-red-300">
-                  Reject
-                </button>
-                <button @click="approveSubmoduleRun()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded text-sm font-medium">
-                  APPROVE
-                </button>
-              </div>
-            </template>
-
-            <!-- APPROVED: Show Done button -->
-            <template x-if="submoduleState === 'approved'">
-              <button @click="closeSubmodulePanel()" class="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded text-sm font-medium">
-                Done
-              </button>
-            </template>
-
+        <!-- Panel Footer - Action Buttons -->
+        <div class="border-t border-gray-200 px-4 py-3 bg-white flex-shrink-0">
+          <div class="flex items-center justify-center gap-3">
+            <button @click="runActiveSubmodule()"
+                    :disabled="!canRunSubmodule() || submoduleState === 'running'"
+                    :class="canRunSubmodule() && submoduleState !== 'running' ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
+                    class="px-8 py-3 rounded text-sm font-medium">
+              RUN TASK
+            </button>
+            <button @click="panelAccordion = 'results'"
+                    :disabled="!submoduleRunResult"
+                    :class="submoduleRunResult ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
+                    class="px-8 py-3 rounded text-sm font-medium">
+              SEE RESULTS
+            </button>
+            <button @click="approveSubmoduleRun()"
+                    :disabled="!submoduleRunResult || activeSubmodule?.status === 'approved'"
+                    :class="submoduleRunResult && activeSubmodule?.status !== 'approved' ? 'bg-[#E11D73] hover:bg-[#E11D73]/90 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
+                    class="px-8 py-3 rounded text-sm font-medium">
+              APPROVE
+            </button>
           </div>
         </div>
       </div>
@@ -2279,6 +2192,7 @@
         activeCategory: null,
         submoduleState: 'idle', // 'idle', 'ready', 'running', 'completed', 'viewing', 'approved'
         submoduleRunResult: null,
+        panelAccordion: 'input', // 'input', 'options', 'results' - which accordion is open
         showAdvancedOptions: false,
         showUploadForm: false,
         submoduleInputUrls: '',
@@ -2851,10 +2765,12 @@
           if (submodule.runResult) {
             this.submoduleRunResult = submodule.runResult;
             this.submoduleState = submodule.status === 'approved' ? 'approved' : 'viewing';
+            this.panelAccordion = 'results'; // Show results accordion if we have results
           } else {
             this.submoduleRunResult = null;
             this.submoduleState = submodule.status === 'approved' ? 'approved' :
                                  submodule.status === 'has_results' ? 'completed' : 'idle';
+            this.panelAccordion = 'input'; // Show input accordion by default
           }
 
           // Reset options to defaults
@@ -3240,6 +3156,7 @@
             this.activeSubmodule.status = 'has_results';
             this.activeSubmodule.result_count = result.result_count || 0;
             this.submoduleState = 'completed';
+            this.panelAccordion = 'results'; // Open results accordion
           } catch (e) {
             console.error('Submodule execution failed:', e);
             this.showToast(e.message, 'error');
