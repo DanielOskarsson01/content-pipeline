@@ -62,6 +62,222 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// =====================================================
+// VALIDATION ROUTES (must come before generic :type/:name route)
+// =====================================================
+
+/**
+ * POST /api/submodules/validation/:name/execute
+ * Execute a validation submodule on discovered URLs
+ * Body: { run_id, run_entity_ids?, config? }
+ */
+router.post('/validation/:name/execute', async (req, res, next) => {
+  try {
+    const { name } = req.params;
+    const { run_id, run_entity_ids, config = {} } = req.body;
+
+    if (!run_id) {
+      return res.status(400).json({ error: 'run_id is required for validation' });
+    }
+
+    // Load validation submodule
+    const submodule = loadSubmodule('validation', name);
+    if (!submodule) {
+      return res.status(404).json({ error: `Validation submodule not found: ${name}` });
+    }
+
+    // Get run_entity_ids if not provided
+    let entityIds = run_entity_ids;
+    if (!entityIds || entityIds.length === 0) {
+      const { data: runEntities, error: reErr } = await db
+        .from('run_entities')
+        .select('id')
+        .eq('run_id', run_id);
+
+      if (reErr) throw reErr;
+      entityIds = (runEntities || []).map(re => re.id);
+    }
+
+    if (entityIds.length === 0) {
+      return res.status(400).json({ error: 'No entities found for this run' });
+    }
+
+    // Load discovered URLs for these entities
+    const { data: urls, error: urlErr } = await db
+      .from('discovered_urls')
+      .select('id, run_entity_id, url, discovery_method, priority, status, created_at')
+      .in('run_entity_id', entityIds)
+      .eq('status', 'pending');
+
+    if (urlErr) throw urlErr;
+
+    if (!urls || urls.length === 0) {
+      return res.json({
+        submodule_run_id: null,
+        submodule: `validation/${name}`,
+        status: 'completed',
+        message: 'No pending URLs to validate',
+        result_count: 0,
+        valid_count: 0,
+        invalid_count: 0
+      });
+    }
+
+    // Get entity info for display
+    const { data: runEntities, error: reErr2 } = await db
+      .from('run_entities')
+      .select('id, entity_snapshot')
+      .in('id', entityIds);
+
+    if (reErr2) throw reErr2;
+
+    const entityNameMap = {};
+    for (const re of runEntities || []) {
+      entityNameMap[re.id] = re.entity_snapshot?.name || 'Unknown';
+    }
+
+    const enrichedUrls = urls.map(u => ({
+      ...u,
+      entity_name: entityNameMap[u.run_entity_id] || 'Unknown'
+    }));
+
+    // Create logger
+    const logs = [];
+    const logger = {
+      info: (msg, data) => logs.push({ level: 'info', msg, data, ts: Date.now() }),
+      warn: (msg, data) => logs.push({ level: 'warn', msg, data, ts: Date.now() }),
+      error: (msg, data) => logs.push({ level: 'error', msg, data, ts: Date.now() })
+    };
+
+    // Execute validation submodule
+    const startTime = Date.now();
+    let result = { valid: [], invalid: [], stats: {} };
+    let error = null;
+
+    try {
+      result = await submodule.execute(enrichedUrls, config, { logger, db });
+    } catch (e) {
+      error = e.message;
+      logger.error(`Validation submodule ${name} failed`, { error: e.message });
+    }
+
+    const duration = Date.now() - startTime;
+    const submoduleRunId = require('crypto').randomUUID();
+    const status = error ? 'failed' : 'completed';
+
+    // Save to submodule_runs
+    const runRecord = {
+      id: submoduleRunId,
+      run_id,
+      submodule_type: 'validation',
+      submodule_name: name,
+      run_entity_ids: entityIds,
+      config,
+      status,
+      result_count: result.valid?.length || 0,
+      results: {
+        valid: result.valid || [],
+        invalid: result.invalid || [],
+        stats: result.stats || {}
+      },
+      logs,
+      duration_ms: duration,
+      error,
+      created_at: new Date().toISOString()
+    };
+
+    const { error: insertErr } = await db
+      .from('submodule_runs')
+      .insert(runRecord);
+
+    if (insertErr && insertErr.code === '42P01') {
+      return res.status(503).json({
+        error: 'Database not ready',
+        detail: 'submodule_runs table does not exist.'
+      });
+    }
+    if (insertErr) throw insertErr;
+
+    res.json({
+      submodule_run_id: submoduleRunId,
+      submodule: `validation/${name}`,
+      status,
+      result_count: enrichedUrls.length,
+      valid_count: result.valid?.length || 0,
+      invalid_count: result.invalid?.length || 0,
+      duration_ms: duration,
+      stats: result.stats,
+      valid: result.valid || [],
+      invalid: result.invalid || [],
+      logs,
+      error
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/submodules/validation/runs/:runId/:submoduleRunId/apply
+ * Apply validation results - update discovered_urls status
+ */
+router.post('/validation/runs/:runId/:submoduleRunId/apply', async (req, res, next) => {
+  try {
+    const { data: subRun, error: getErr } = await db
+      .from('submodule_runs')
+      .select('*')
+      .eq('id', req.params.submoduleRunId)
+      .eq('run_id', req.params.runId)
+      .single();
+
+    if (getErr) {
+      if (getErr.code === 'PGRST116') {
+        return res.status(404).json({ error: 'Validation run not found' });
+      }
+      throw getErr;
+    }
+
+    if (subRun.submodule_type !== 'validation') {
+      return res.status(400).json({ error: 'Not a validation submodule run' });
+    }
+
+    const results = subRun.results || {};
+    const invalidUrls = results.invalid || [];
+
+    if (invalidUrls.length > 0) {
+      const invalidIds = invalidUrls.map(u => u.id).filter(Boolean);
+      if (invalidIds.length > 0) {
+        const { error: updateErr } = await db
+          .from('discovered_urls')
+          .update({ status: 'filtered' })
+          .in('id', invalidIds);
+
+        if (updateErr) throw updateErr;
+      }
+    }
+
+    const { error: updateRunErr } = await db
+      .from('submodule_runs')
+      .update({
+        status: 'approved',
+        approved_at: new Date().toISOString(),
+        approved_count: results.valid?.length || 0
+      })
+      .eq('id', req.params.submoduleRunId);
+
+    if (updateRunErr) throw updateRunErr;
+
+    res.json({
+      applied: true,
+      valid_count: results.valid?.length || 0,
+      filtered_count: invalidUrls.length,
+      submodule_run_id: req.params.submoduleRunId
+    });
+  } catch (err) { next(err); }
+});
+
+// =====================================================
+// GENERIC SUBMODULE ROUTES
+// =====================================================
+
 /**
  * POST /api/submodules/:type/:name/execute
  * Execute a single submodule for given entities
