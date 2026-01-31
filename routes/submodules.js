@@ -12,6 +12,49 @@ const router = Router();
 const submoduleCache = {};
 
 /**
+ * Create approval records for submodule results
+ * @param {string} submoduleRunId - UUID of the submodule run
+ * @param {Array} results - Array of results (could be {valid:[], invalid:[]} or flat array)
+ * @returns {Promise<number>} - Number of approval records created
+ */
+async function createApprovalRecords(submoduleRunId, results) {
+  // Handle validation submodules which return {valid:[], invalid:[]}
+  let flatResults = results;
+  if (results && results.valid !== undefined) {
+    flatResults = [...(results.valid || []), ...(results.invalid || [])];
+  }
+
+  if (!flatResults || flatResults.length === 0) {
+    return 0;
+  }
+
+  const approvalRecords = flatResults.map((result, index) => ({
+    submodule_run_id: submoduleRunId,
+    result_index: index,
+    result_url: result.url || null,
+    result_entity_id: result.entity_id || result.run_entity_id || null,
+    result_entity_name: result.entity_name || null,
+    status: 'pending'
+  }));
+
+  const { error } = await db
+    .from('submodule_result_approvals')
+    .insert(approvalRecords);
+
+  // Ignore if table doesn't exist yet (migration not run)
+  if (error && error.code === '42P01') {
+    console.warn('[submodules] submodule_result_approvals table not found - run migration');
+    return 0;
+  }
+  if (error) {
+    console.error('[submodules] Failed to create approval records:', error);
+    return 0;
+  }
+
+  return approvalRecords.length;
+}
+
+/**
  * Load a submodule by name and type
  */
 function loadSubmodule(type, name) {
@@ -217,6 +260,9 @@ router.post('/validation/:name/execute', async (req, res, next) => {
       });
     }
     if (insertErr) throw insertErr;
+
+    // Create per-result approval records
+    await createApprovalRecords(submoduleRunId, result);
 
     res.json({
       submodule_run_id: submoduleRunId,
@@ -498,6 +544,9 @@ router.post('/:type/:name/execute', async (req, res, next) => {
         });
       }
       if (insertErr) throw insertErr;
+
+      // Create per-result approval records
+      await createApprovalRecords(submoduleRunId, results);
     }
 
     res.json({
@@ -685,6 +734,272 @@ router.delete('/runs/:runId/:submoduleRunId', async (req, res, next) => {
     if (error && error.code !== '42P01') throw error;
 
     res.json({ rejected: true });
+  } catch (err) { next(err); }
+});
+
+// =====================================================
+// PER-RESULT APPROVAL ROUTES
+// =====================================================
+
+/**
+ * GET /api/submodules/runs/:runId/:submoduleRunId/results
+ * Get results with per-result approval status
+ */
+router.get('/runs/:runId/:submoduleRunId/results', async (req, res, next) => {
+  try {
+    // Get the submodule run
+    const { data: subRun, error: runErr } = await db
+      .from('submodule_runs')
+      .select('id, submodule_name, submodule_type, results, result_count')
+      .eq('id', req.params.submoduleRunId)
+      .eq('run_id', req.params.runId)
+      .single();
+
+    if (runErr && runErr.code === 'PGRST116') {
+      return res.status(404).json({ error: 'Submodule run not found' });
+    }
+    if (runErr) throw runErr;
+
+    // Get approval records
+    const { data: approvals, error: appErr } = await db
+      .from('submodule_result_approvals')
+      .select('*')
+      .eq('submodule_run_id', req.params.submoduleRunId)
+      .order('result_index', { ascending: true });
+
+    // Table might not exist yet
+    if (appErr && appErr.code === '42P01') {
+      // Return results without approval data
+      const rawResults = subRun.results || [];
+      const flatResults = rawResults.valid !== undefined
+        ? [...(rawResults.valid || []), ...(rawResults.invalid || [])]
+        : rawResults;
+
+      return res.json({
+        submodule_run_id: req.params.submoduleRunId,
+        submodule_name: subRun.submodule_name,
+        total_results: flatResults.length,
+        results: flatResults.map((r, i) => ({
+          approval_id: null,
+          result_index: i,
+          url: r.url,
+          entity_name: r.entity_name,
+          status: 'pending',
+          rejection_reason: null,
+          ...r
+        })),
+        summary: { pending: flatResults.length, approved: 0, rejected: 0 },
+        approval_tracking_available: false
+      });
+    }
+    if (appErr) throw appErr;
+
+    // Merge results with approval status
+    const rawResults = subRun.results || [];
+    const flatResults = rawResults.valid !== undefined
+      ? [...(rawResults.valid || []), ...(rawResults.invalid || [])]
+      : rawResults;
+
+    const approvalMap = new Map();
+    for (const app of approvals || []) {
+      approvalMap.set(app.result_index, app);
+    }
+
+    const mergedResults = flatResults.map((result, index) => {
+      const approval = approvalMap.get(index);
+      return {
+        approval_id: approval?.id || null,
+        result_index: index,
+        url: result.url,
+        entity_name: result.entity_name,
+        status: approval?.status || 'pending',
+        rejection_reason: approval?.rejection_reason || null,
+        ...result
+      };
+    });
+
+    // Calculate summary
+    const summary = { pending: 0, approved: 0, rejected: 0 };
+    for (const r of mergedResults) {
+      summary[r.status] = (summary[r.status] || 0) + 1;
+    }
+
+    res.json({
+      submodule_run_id: req.params.submoduleRunId,
+      submodule_name: subRun.submodule_name,
+      total_results: mergedResults.length,
+      results: mergedResults,
+      summary,
+      approval_tracking_available: true
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * PATCH /api/submodules/runs/:runId/:submoduleRunId/results/:approvalId
+ * Update single result approval status
+ */
+router.patch('/runs/:runId/:submoduleRunId/results/:approvalId', async (req, res, next) => {
+  try {
+    const { action, reason } = req.body;
+
+    if (!action || !['approve', 'reject'].includes(action)) {
+      return res.status(400).json({ error: 'action must be "approve" or "reject"' });
+    }
+
+    const status = action === 'approve' ? 'approved' : 'rejected';
+
+    // Update the approval record
+    const { data: updated, error: updateErr } = await db
+      .from('submodule_result_approvals')
+      .update({
+        status,
+        rejection_reason: action === 'reject' ? (reason || null) : null,
+        decided_at: new Date().toISOString()
+      })
+      .eq('id', req.params.approvalId)
+      .eq('submodule_run_id', req.params.submoduleRunId)
+      .select()
+      .single();
+
+    if (updateErr && updateErr.code === '42P01') {
+      return res.status(503).json({ error: 'Approval tracking not available - run migration' });
+    }
+    if (updateErr && updateErr.code === 'PGRST116') {
+      return res.status(404).json({ error: 'Approval record not found' });
+    }
+    if (updateErr) throw updateErr;
+
+    // Get updated summary
+    const { data: allApprovals, error: summErr } = await db
+      .from('submodule_result_approvals')
+      .select('status')
+      .eq('submodule_run_id', req.params.submoduleRunId);
+
+    if (summErr) throw summErr;
+
+    const summary = { pending: 0, approved: 0, rejected: 0 };
+    for (const app of allApprovals || []) {
+      summary[app.status] = (summary[app.status] || 0) + 1;
+    }
+
+    res.json({
+      success: true,
+      approval_id: req.params.approvalId,
+      status: updated.status,
+      submodule_summary: summary
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/submodules/runs/:runId/:submoduleRunId/batch-approval
+ * Batch update multiple result approvals
+ */
+router.post('/runs/:runId/:submoduleRunId/batch-approval', async (req, res, next) => {
+  try {
+    const { approvals, trigger_chain = true } = req.body;
+
+    if (!approvals || !Array.isArray(approvals) || approvals.length === 0) {
+      return res.status(400).json({ error: 'approvals array is required' });
+    }
+
+    // Validate all approvals have required fields
+    for (const app of approvals) {
+      if (!app.result_id || !['approve', 'reject'].includes(app.action)) {
+        return res.status(400).json({
+          error: 'Each approval must have result_id and action (approve/reject)'
+        });
+      }
+    }
+
+    // Get the submodule run first
+    const { data: subRun, error: runErr } = await db
+      .from('submodule_runs')
+      .select('*')
+      .eq('id', req.params.submoduleRunId)
+      .eq('run_id', req.params.runId)
+      .single();
+
+    if (runErr && runErr.code === 'PGRST116') {
+      return res.status(404).json({ error: 'Submodule run not found' });
+    }
+    if (runErr) throw runErr;
+
+    // Process each approval
+    const now = new Date().toISOString();
+    let approvedCount = 0;
+    let rejectedCount = 0;
+
+    for (const app of approvals) {
+      const status = app.action === 'approve' ? 'approved' : 'rejected';
+
+      const { error: updateErr } = await db
+        .from('submodule_result_approvals')
+        .update({
+          status,
+          rejection_reason: app.action === 'reject' ? (app.reason || null) : null,
+          decided_at: now
+        })
+        .eq('id', app.result_id)
+        .eq('submodule_run_id', req.params.submoduleRunId);
+
+      if (updateErr && updateErr.code === '42P01') {
+        return res.status(503).json({ error: 'Approval tracking not available - run migration' });
+      }
+      if (updateErr) throw updateErr;
+
+      if (app.action === 'approve') approvedCount++;
+      else rejectedCount++;
+    }
+
+    // Get final summary
+    const { data: allApprovals, error: summErr } = await db
+      .from('submodule_result_approvals')
+      .select('status')
+      .eq('submodule_run_id', req.params.submoduleRunId);
+
+    if (summErr) throw summErr;
+
+    const summary = { pending: 0, approved: 0, rejected: 0 };
+    for (const app of allApprovals || []) {
+      summary[app.status] = (summary[app.status] || 0) + 1;
+    }
+
+    // Determine new submodule status
+    const newStatus = summary.pending === 0 ? 'approved' : 'partial';
+
+    // Update submodule_runs with counts
+    const { error: subRunErr } = await db
+      .from('submodule_runs')
+      .update({
+        status: newStatus,
+        approved_count: summary.approved,
+        rejected_count: summary.rejected,
+        approved_at: summary.pending === 0 ? now : null
+      })
+      .eq('id', req.params.submoduleRunId);
+
+    if (subRunErr) throw subRunErr;
+
+    // Chain transfer (future enhancement)
+    let chainTriggered = false;
+    let nextSubmodule = null;
+
+    // TODO: Implement chain transfer if trigger_chain=true
+
+    res.json({
+      success: true,
+      submodule_run_id: req.params.submoduleRunId,
+      summary: {
+        total: allApprovals.length,
+        approved: summary.approved,
+        rejected: summary.rejected
+      },
+      submodule_status: newStatus,
+      chain_triggered: chainTriggered,
+      next_submodule: nextSubmodule
+    });
   } catch (err) { next(err); }
 });
 
