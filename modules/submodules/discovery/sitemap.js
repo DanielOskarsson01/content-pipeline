@@ -21,6 +21,7 @@ const https = require('https');
 const http = require('http');
 const { parseStringPromise } = require('xml2js');
 const { gunzipSync } = require('zlib');
+const { fetchWithFallback } = require('../../../utils/browser');
 
 module.exports = {
   id: 'sitemap',
@@ -62,63 +63,64 @@ module.exports = {
   async execute(entities, config = {}, context = {}) {
     const { logger = console } = context;
     const includeNested = config.include_nested !== false;
-    const maxUrlsPerEntity = config.max_urls_per_entity || 500;
+    const maxUrlsPerEntity = config.max_urls_per_entity || 10000;
+    const concurrency = config.concurrency || 5; // Process 5 entities at a time
     const results = [];
     const errors = [];
 
-    for (const entity of entities) {
-      // Get website URL from entity (supports both old and new formats)
+    // Process entity and return its results
+    const processEntity = async (entity) => {
       const website = entity.website || entity.metadata?.website || entity.domain;
+      const entityName = entity.name || entity.entity_name;
 
       if (!website) {
-        errors.push({
-          entity_id: entity.id,
-          entity_name: entity.name || entity.entity_name,
-          error_code: 'NO_WEBSITE_URL',
-          message: 'Entity missing website URL'
-        });
-        logger.warn(`[sitemap] Entity ${entity.name || entity.entity_name} has no website, skipping`);
-        continue;
+        return {
+          urls: [],
+          error: { entity_id: entity.id, entity_name: entityName, error_code: 'NO_WEBSITE_URL', message: 'Entity missing website URL' }
+        };
       }
 
       try {
-        // Normalize website to domain
         const domain = this._extractDomain(website);
         const sitemapResult = await this._fetchSitemap(domain, includeNested, maxUrlsPerEntity, logger);
 
-        for (const item of sitemapResult.urls) {
-          results.push({
-            entity_id: entity.id,
-            entity_name: entity.name || entity.entity_name,
-            url: item.url,
-            source_category: 'website',
-            source_submodule: 'sitemap',
-            metadata: {
-              source: 'sitemap',
-              sitemap_lastmod: item.lastmod || null
-            }
-          });
-        }
-
-        if (sitemapResult.error) {
-          errors.push({
-            entity_id: entity.id,
-            entity_name: entity.name || entity.entity_name,
-            error_code: sitemapResult.error.code,
-            message: sitemapResult.error.message
-          });
-        }
-
-        logger.info(`[sitemap] Found ${sitemapResult.urls.length} URLs for ${entity.name || entity.entity_name}`);
-      } catch (e) {
-        errors.push({
+        const urls = sitemapResult.urls.map(item => ({
           entity_id: entity.id,
-          entity_name: entity.name || entity.entity_name,
-          error_code: 'SITEMAP_PARSE_ERROR',
-          message: e.message
-        });
-        logger.error(`[sitemap] Error processing ${entity.name || entity.entity_name}: ${e.message}`);
+          entity_name: entityName,
+          url: item.url,
+          source_category: 'website',
+          source_submodule: 'sitemap',
+          metadata: { source: 'sitemap', sitemap_lastmod: item.lastmod || null }
+        }));
+
+        logger.info(`[sitemap] Found ${urls.length} URLs for ${entityName}`);
+
+        return {
+          urls,
+          error: sitemapResult.error ? { entity_id: entity.id, entity_name: entityName, ...sitemapResult.error } : null
+        };
+      } catch (e) {
+        logger.error(`[sitemap] Error processing ${entityName}: ${e.message}`);
+        return {
+          urls: [],
+          error: { entity_id: entity.id, entity_name: entityName, error_code: 'SITEMAP_PARSE_ERROR', message: e.message }
+        };
       }
+    };
+
+    // Process entities in parallel batches
+    logger.info(`[sitemap] Processing ${entities.length} entities (concurrency: ${concurrency})`);
+
+    for (let i = 0; i < entities.length; i += concurrency) {
+      const batch = entities.slice(i, i + concurrency);
+      const batchResults = await Promise.all(batch.map(processEntity));
+
+      for (const result of batchResults) {
+        results.push(...result.urls);
+        if (result.error) errors.push(result.error);
+      }
+
+      logger.info(`[sitemap] Processed batch ${Math.floor(i / concurrency) + 1}/${Math.ceil(entities.length / concurrency)}`);
     }
 
     // Attach errors to results for visibility
@@ -158,9 +160,10 @@ module.exports = {
     let foundUrl = null;
 
     for (const sitemapUrl of sitemapLocations) {
-      content = await this._fetch(sitemapUrl, 30000);
+      content = await this._fetch(sitemapUrl, 15000, logger);
       if (content) {
         foundUrl = sitemapUrl;
+        logger.info(`[sitemap] Found sitemap at ${sitemapUrl}`);
         break;
       }
     }
@@ -181,15 +184,23 @@ module.exports = {
           ? parsed.sitemapindex.sitemap
           : [parsed.sitemapindex.sitemap];
 
-        // Fetch all nested sitemaps (no limit - filtering in Step 2)
-        for (const sm of sitemaps) {
-          if (urls.length >= maxUrls) break;
+        // Fetch all nested sitemaps IN PARALLEL (much faster)
+        const sitemapLocs = sitemaps.map(sm => sm.loc).filter(Boolean);
+        logger.info(`[sitemap] Found ${sitemapLocs.length} nested sitemaps, fetching in parallel...`);
 
-          const loc = sm.loc;
-          if (loc) {
-            const subUrls = await this._fetchSingleSitemap(loc, maxUrls - urls.length, logger);
-            urls.push(...subUrls);
-          }
+        // Give each sitemap full limit - we'll cap total at the end
+        const fetchPromises = sitemapLocs.map(loc =>
+          this._fetchSingleSitemap(loc, maxUrls, logger)
+            .catch(e => { logger.warn(`[sitemap] Failed to fetch ${loc}: ${e.message}`); return []; })
+        );
+
+        const allResults = await Promise.all(fetchPromises);
+        for (const subUrls of allResults) {
+          urls.push(...subUrls);
+        }
+        // Cap total URLs
+        if (urls.length > maxUrls) {
+          urls.length = maxUrls;
         }
       } else if (parsed.urlset?.url) {
         // Regular sitemap
@@ -218,7 +229,7 @@ module.exports = {
     const urls = [];
 
     try {
-      let content = await this._fetch(url, 30000);
+      let content = await this._fetch(url, 15000, logger);
       if (!content) return urls;
 
       // Handle gzipped sitemaps
@@ -255,14 +266,62 @@ module.exports = {
     return urls;
   },
 
-  _fetch(url, timeout = 30000) {
+  async _fetch(url, timeout = 15000, logger = console) {
+    // First try simple HTTP fetch
+    const content = await this._simpleFetch(url, timeout);
+
+    if (content) {
+      // Check if we got a valid XML response or if we're blocked
+      const lowerContent = content.toLowerCase();
+      const isBlocked =
+        lowerContent.includes('captcha') ||
+        lowerContent.includes('cloudflare') ||
+        lowerContent.includes('please enable javascript') ||
+        lowerContent.includes('browser check') ||
+        lowerContent.includes('ddos protection') ||
+        (content.length < 500 && !content.includes('<?xml') && !content.includes('<urlset') && !content.includes('<sitemapindex'));
+
+      if (!isBlocked) {
+        return content;
+      }
+
+      logger.info?.(`[sitemap] Simple fetch blocked for ${url}, trying browser...`);
+    }
+
+    // Fall back to browser fetch
+    try {
+      const result = await fetchWithFallback(url, {
+        simpleTimeout: timeout,
+        browserTimeout: 30000,
+        logger
+      });
+
+      if (result.status === 200 && result.content) {
+        logger.info?.(`[sitemap] Browser fetch succeeded for ${url}`);
+        return result.content;
+      }
+    } catch (e) {
+      logger.warn?.(`[sitemap] Browser fetch failed for ${url}: ${e.message}`);
+    }
+
+    return null;
+  },
+
+  _simpleFetch(url, timeout = 15000) {
     return new Promise((resolve) => {
       const protocol = url.startsWith('https') ? https : http;
 
-      const req = protocol.get(url, { timeout }, (res) => {
+      const req = protocol.get(url, {
+        timeout,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9'
+        }
+      }, (res) => {
         // Follow redirects
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          this._fetch(res.headers.location, timeout).then(resolve);
+          this._simpleFetch(res.headers.location, timeout).then(resolve);
           return;
         }
 

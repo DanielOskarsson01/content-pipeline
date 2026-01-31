@@ -8,6 +8,8 @@
  * - Admin, dashboard pages
  * - File downloads (PDF, images, etc.)
  * - Pagination parameters
+ * - Listing/index pages (blog, category, tag, archive) - contain teasers not content
+ * - Social media links
  *
  * Uses configurable include/exclude patterns.
  */
@@ -95,6 +97,24 @@ module.exports = {
     // Calendar/date archives
     /\/\d{4}\/\d{2}\/\d{2}\/?$/,  // /2024/01/15/
     /\/\d{4}\/\d{2}\/?$/,         // /2024/01/
+
+    // Listing/index pages (contain teasers, not actual content)
+    /\/blog\/?$/i,                 // /blog/ without article
+    /\/news\/?$/i,                 // /news/ index
+    /\/articles\/?$/i,             // /articles/ listing
+    /\/posts\/?$/i,                // /posts/ listing
+    /\/category\/[^/]+\/?$/i,      // /category/gaming/
+    /\/tag\/[^/]+\/?$/i,           // /tag/slots/
+    /\/tags\/[^/]+\/?$/i,          // /tags/casino/
+    /\/archive\/?/i,               // /archive/ pages
+    /\/author\/[^/]+\/?$/i,        // /author/john/ (listing)
+    /\/topics?\/?$/i,              // /topic/ or /topics/
+    /\/all-posts/i,                // /all-posts
+    /\/latest\/?$/i,               // /latest/
+
+    // WordPress-specific listing pages
+    /\/wp\/\d{4}\//i,              // /wp/2024/ date archives
+    /\/page\/\d+/i,                // /page/2 (pagination anywhere)
 
     // Social/external
     /facebook\.com/i,

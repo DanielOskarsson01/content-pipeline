@@ -223,7 +223,13 @@
               </div>
               <!-- Results content -->
               <div x-show="submoduleRunResult" class="flex-1 flex flex-col min-h-0 p-4 overflow-hidden">
-                <p class="text-xs text-gray-600 font-medium uppercase mb-2 flex-shrink-0">URLs</p>
+                <div class="flex items-center justify-between mb-2 flex-shrink-0">
+                  <p class="text-xs text-gray-600 font-medium uppercase">URLs</p>
+                  <button @click="downloadSubmoduleCsv()"
+                          class="text-xs text-[#E11D73] hover:text-[#E11D73]/80 flex items-center gap-1">
+                    <span>&#x2B73;</span> Download CSV
+                  </button>
+                </div>
                 <div class="flex-1 overflow-y-auto space-y-4">
                   <!-- URLs grouped by entity -->
                   <template x-for="(entity, idx) in submoduleRunResult?.entities || []" :key="idx">
@@ -281,6 +287,131 @@
       </div>
     </div>
 
+    <!-- Validation Overlay Panel (Step 2) -->
+    <div x-show="validationPanelOpen" class="fixed inset-0 z-50" @keydown.escape.window="closeValidationPanel()">
+      <!-- Backdrop -->
+      <div class="fixed inset-0 bg-black/30 panel-backdrop"
+           :class="validationPanelOpen ? 'open' : ''"
+           @click="closeValidationPanel()"></div>
+
+      <!-- Panel -->
+      <div class="fixed inset-y-0 left-0 w-full max-w-lg bg-gray-100 shadow-2xl slide-panel flex flex-col"
+           :class="validationPanelOpen ? 'open' : ''">
+
+        <!-- Panel Header - Orange for Validation -->
+        <div class="bg-orange-500 text-white px-4 py-3 flex items-center justify-between flex-shrink-0">
+          <div>
+            <h3 class="text-base font-semibold" x-text="'Step 2 - ' + (activeSubmodule?.name || 'Validation')"></h3>
+            <p class="text-xs text-white/70" x-text="selectedProject?.name || 'Project name'"></p>
+          </div>
+          <button @click="closeValidationPanel()" class="p-1 text-white/80 hover:text-white rounded hover:bg-white/10">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <!-- Submodule Description -->
+        <p class="px-4 py-2 text-xs text-gray-500 bg-white border-b flex-shrink-0" x-text="activeSubmodule?.description || ''"></p>
+
+        <!-- Panel Content -->
+        <div class="flex-1 flex flex-col overflow-hidden p-3 gap-3">
+
+          <!-- Input Info -->
+          <div class="bg-white rounded-lg border border-gray-200 p-4">
+            <p class="text-xs text-gray-600 font-medium mb-2">Input URLs</p>
+            <p class="text-lg font-semibold text-gray-800" x-text="getTotalDiscoveredUrls() + ' discovered URLs'"></p>
+            <p class="text-[10px] text-gray-500 mt-1">URLs from Step 1 (Discovery) with status "pending"</p>
+          </div>
+
+          <!-- Status/Results -->
+          <div class="bg-white rounded-lg border border-gray-200 p-4 flex-1 overflow-y-auto">
+            <!-- Idle State -->
+            <div x-show="validationPanelState === 'idle'" class="text-center py-8">
+              <p class="text-gray-500 mb-4">Ready to validate URLs</p>
+              <button @click="runValidationSubmodule()"
+                      :disabled="!currentRunId"
+                      :class="currentRunId ? 'bg-orange-500 hover:bg-orange-600 text-white' : 'bg-gray-200 text-gray-400 cursor-not-allowed'"
+                      class="px-6 py-2 rounded text-sm font-medium">
+                Run Validation
+              </button>
+              <p x-show="!currentRunId" class="text-xs text-red-500 mt-2">Create a project first in Step 0</p>
+            </div>
+
+            <!-- Running State -->
+            <div x-show="validationPanelState === 'running'" class="text-center py-8">
+              <div class="animate-spin w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+              <p class="text-gray-500">Validating URLs...</p>
+            </div>
+
+            <!-- Completed State -->
+            <div x-show="validationPanelState === 'completed' || validationPanelState === 'approved'">
+              <p class="text-xs text-gray-600 font-medium mb-3">Validation Results</p>
+
+              <!-- Summary Stats -->
+              <div class="grid grid-cols-3 gap-3 mb-4">
+                <div class="bg-gray-50 rounded p-3 text-center">
+                  <p class="text-2xl font-bold text-gray-800" x-text="validationRunResult?.result_count || 0"></p>
+                  <p class="text-[10px] text-gray-500">Total</p>
+                </div>
+                <div class="bg-green-50 rounded p-3 text-center cursor-pointer hover:bg-green-100 transition-colors"
+                     @click="downloadValidationCsv('valid')"
+                     title="Click to download CSV">
+                  <p class="text-2xl font-bold text-green-600" x-text="validationRunResult?.valid_count || 0"></p>
+                  <p class="text-[10px] text-gray-500">Valid <span class="text-green-600">&#x2B73;</span></p>
+                </div>
+                <div class="bg-orange-50 rounded p-3 text-center cursor-pointer hover:bg-orange-100 transition-colors"
+                     @click="downloadValidationCsv('invalid')"
+                     title="Click to download CSV">
+                  <p class="text-2xl font-bold text-orange-600" x-text="validationRunResult?.invalid_count || 0"></p>
+                  <p class="text-[10px] text-gray-500">Filtered <span class="text-orange-600">&#x2B73;</span></p>
+                </div>
+              </div>
+
+              <!-- Invalid URLs Preview -->
+              <div x-show="validationRunResult?.invalid?.length > 0" class="mb-4">
+                <p class="text-xs text-gray-600 font-medium mb-2">Filtered URLs (preview)</p>
+                <div class="max-h-48 overflow-y-auto space-y-1">
+                  <template x-for="(url, idx) in (validationRunResult?.invalid || []).slice(0, 10)" :key="idx">
+                    <div class="bg-orange-50 rounded p-2 text-xs">
+                      <p class="text-gray-700 truncate" x-text="url.url"></p>
+                      <p class="text-orange-600 text-[10px]" x-text="url.details || url.reason"></p>
+                    </div>
+                  </template>
+                  <p x-show="(validationRunResult?.invalid?.length || 0) > 10" class="text-[10px] text-gray-400 text-center">
+                    + <span x-text="validationRunResult?.invalid?.length - 10"></span> more...
+                  </p>
+                </div>
+              </div>
+
+              <!-- Duration -->
+              <p class="text-[10px] text-gray-400" x-text="'Duration: ' + (validationRunResult?.duration_ms || 0) + 'ms'"></p>
+            </div>
+
+            <!-- Error State -->
+            <div x-show="validationPanelState === 'error'" class="text-center py-8">
+              <p class="text-red-500 mb-4">Validation failed</p>
+              <button @click="runValidationSubmodule()" class="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded text-sm font-medium">
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="border-t border-gray-200 bg-white px-4 py-3 flex gap-3 flex-shrink-0">
+          <button @click="closeValidationPanel()"
+                  class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2.5 rounded text-sm font-medium">
+            Close
+          </button>
+          <button @click="applyValidationResults()"
+                  :disabled="validationPanelState !== 'completed'"
+                  :class="validationPanelState === 'completed' ? 'bg-[#E11D73] hover:bg-[#E11D73]/90 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
+                  class="flex-1 px-4 py-2.5 rounded text-sm font-medium">
+            Apply Results
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Legacy Results Panel (kept for backward compatibility) -->
     <div x-show="resultsPanelOpen" class="fixed inset-0 z-50" @keydown.escape.window="resultsPanelOpen = false">
       <!-- Backdrop -->
@@ -331,7 +462,13 @@
 
           <!-- Results List -->
           <div x-show="resultsPanel?.items?.length > 0">
-            <p class="text-xs text-gray-500 mb-2 font-medium uppercase">Details</p>
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-xs text-gray-500 font-medium uppercase">Details</p>
+              <button @click="downloadResultsPanelCsv()"
+                      class="text-xs text-[#E11D73] hover:text-[#E11D73]/80 flex items-center gap-1">
+                <span>&#x2B73;</span> Download CSV
+              </button>
+            </div>
             <div class="space-y-2">
               <template x-for="(item, idx) in resultsPanel?.items || []" :key="idx">
                 <div class="bg-white rounded border border-gray-200 p-3">
@@ -646,8 +783,8 @@
                     <!-- STEP 2: Validation & Dedup -->
                     <div x-show="i === 2">
                       <div class="bg-orange-50 rounded-lg p-3 border border-orange-200 mb-4">
-                        <p class="text-xs text-orange-700 font-medium mb-1">Validation & Deduplication</p>
-                        <p class="text-xs text-gray-600">Filter discovered URLs by trust, authority, and compliance. Remove duplicate URLs and mark filtered content.</p>
+                        <p class="text-xs text-[#E11D73] font-medium mb-1">Validation & Deduplication</p>
+                        <p class="text-xs text-gray-600">Filter discovered URLs by format, path patterns, and remove duplicates. Run submodules in order for best results.</p>
                       </div>
 
                       <!-- Input from Step 1 -->
@@ -663,59 +800,78 @@
                         </div>
                       </div>
 
-                      <!-- Validation Rules (simplified) -->
-                      <p class="text-xs text-gray-500 mb-3 font-medium uppercase">Validation Rules</p>
-                      <div class="space-y-2 mb-4">
-                        <div class="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-3">
-                          <div class="flex items-center gap-3">
-                            <input type="checkbox" checked class="rounded border-gray-300 text-brand-600">
-                            <div>
-                              <p class="text-sm font-medium text-gray-800">Deduplication</p>
-                              <p class="text-[10px] text-gray-500">Remove duplicate URLs across sources</p>
+                      <!-- Validation Category Cards with Inline Submodules -->
+                      <p class="text-xs text-gray-500 mb-3 font-medium">Validation Submodules (click to run)</p>
+                      <div class="grid grid-cols-2 gap-3 mb-6">
+                        <template x-for="(cat, catKey) in validationCategories" :key="catKey">
+                          <div class="rounded-lg border transition-all"
+                               :class="{
+                                 'border-dashed border-2 border-orange-400 bg-white': cat.expanded,
+                                 'border-gray-200 bg-white hover:border-gray-300': !cat.expanded
+                               }">
+                            <!-- Category Header (always visible) -->
+                            <div class="p-3 cursor-pointer" @click="toggleValidationCategory(catKey)">
+                              <div class="flex items-center gap-2 mb-1">
+                                <span class="text-lg" x-text="cat.icon"></span>
+                                <p class="text-sm font-semibold text-gray-800" x-text="cat.label"></p>
+                              </div>
+                              <p class="text-[10px] text-gray-500" x-text="cat.description"></p>
+                              <p class="text-[10px] text-gray-400 mt-1">
+                                <span x-text="getApprovedValidationSubmoduleCount(cat) + '/' + cat.submodules.length"></span> completed
+                              </p>
+                            </div>
+
+                            <!-- Inline Submodules (shown when expanded) -->
+                            <div x-show="cat.expanded" x-transition class="border-t border-gray-200">
+                              <p class="text-[10px] text-gray-500 font-medium uppercase px-3 pt-2">Submodules</p>
+                              <div class="p-2 space-y-1">
+                                <template x-for="sub in cat.submodules" :key="sub.id">
+                                  <div class="flex items-center justify-between p-2 rounded hover:bg-gray-50 cursor-pointer group submodule-card"
+                                       :class="{
+                                         'approved': sub.status === 'approved',
+                                         'has-results': sub.status === 'completed',
+                                         'running': runningSubmodules['validation-' + sub.id]
+                                       }"
+                                       @click.stop="openValidationSubmodule(sub, cat)">
+                                    <div class="flex items-center gap-2">
+                                      <span x-show="sub.status === 'approved'" class="text-green-500 text-sm">&#10003;</span>
+                                      <span x-show="sub.status === 'completed'" class="text-blue-500 text-sm">&#8635;</span>
+                                      <span x-show="sub.status === 'pending'" class="text-gray-300 text-sm">&#9675;</span>
+                                      <div>
+                                        <p class="text-sm text-gray-700" :class="{'text-[#E11D73]': sub.status === 'approved', 'text-blue-600': sub.status === 'completed'}" x-text="sub.name"></p>
+                                        <p class="text-[10px] text-gray-400" x-text="sub.description"></p>
+                                        <p x-show="sub.result_count > 0" class="text-[10px] text-green-600 mt-0.5">
+                                          <span x-text="sub.valid_count"></span> valid, <span x-text="sub.invalid_count"></span> filtered
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                      <span class="text-xs px-2 py-0.5 rounded"
+                                            :class="sub.cost === 'cheap' ? 'bg-green-100 text-green-700' : sub.cost === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-orange-100 text-orange-700'"
+                                            x-text="sub.cost"></span>
+                                      <svg class="w-5 h-5 text-[#E11D73] opacity-50 group-hover:opacity-100" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                                      </svg>
+                                    </div>
+                                  </div>
+                                </template>
+                              </div>
                             </div>
                           </div>
-                          <span class="text-xs text-gray-500">Always enabled</span>
-                        </div>
-                        <div class="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-3">
-                          <div class="flex items-center gap-3">
-                            <input type="checkbox" checked class="rounded border-gray-300 text-brand-600">
-                            <div>
-                              <p class="text-sm font-medium text-gray-800">Domain Authority Check</p>
-                              <p class="text-[10px] text-gray-500">Min DA score: 10</p>
-                            </div>
-                          </div>
-                          <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">cheap</span>
-                        </div>
-                        <div class="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-3">
-                          <div class="flex items-center gap-3">
-                            <input type="checkbox" checked class="rounded border-gray-300 text-brand-600">
-                            <div>
-                              <p class="text-sm font-medium text-gray-800">Blocked Domains</p>
-                              <p class="text-[10px] text-gray-500">Filter known spam/low-quality sites</p>
-                            </div>
-                          </div>
-                          <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">cheap</span>
-                        </div>
-                        <div class="flex items-center justify-between bg-white rounded-lg border border-gray-200 p-3">
-                          <div class="flex items-center gap-3">
-                            <input type="checkbox" class="rounded border-gray-300 text-brand-600">
-                            <div>
-                              <p class="text-sm font-medium text-gray-800">Language Filter</p>
-                              <p class="text-[10px] text-gray-500">Only English content</p>
-                            </div>
-                          </div>
-                          <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">cheap</span>
-                        </div>
+                        </template>
                       </div>
 
-                      <!-- Results Summary -->
+                      <!-- Validation Summary -->
                       <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                        <p class="text-xs text-gray-500 mb-2">Validation Results (mock)</p>
+                        <div class="flex items-center justify-between mb-2">
+                          <p class="text-xs text-gray-600 font-medium uppercase">Validation Summary</p>
+                          <span class="text-xs text-gray-500" x-text="getTotalApprovedValidationSubmodules() + ' submodules completed'"></span>
+                        </div>
                         <div class="flex flex-wrap gap-4 text-sm">
-                          <span class="text-gray-700"><span class="font-semibold">312</span> input URLs</span>
-                          <span class="text-green-600"><span class="font-semibold">285</span> passed</span>
-                          <span class="text-orange-600"><span class="font-semibold">27</span> filtered</span>
-                          <span class="text-gray-400">12 duplicates removed</span>
+                          <span class="text-gray-700"><span class="font-semibold text-lg" x-text="validationStats.total_input || getTotalDiscoveredUrls()"></span> input URLs</span>
+                          <span class="text-green-600"><span class="font-semibold" x-text="validationStats.valid_count || '—'"></span> valid</span>
+                          <span class="text-orange-600"><span class="font-semibold" x-text="validationStats.filtered_count || '—'"></span> filtered</span>
+                          <span class="text-gray-400"><span x-text="validationStats.duplicate_count || '—'"></span> duplicates</span>
                         </div>
                       </div>
                     </div>
@@ -2143,6 +2299,11 @@
         resultsPanelOpen: false,
         resultsPanel: null,
 
+        // Validation Panel State (Step 2)
+        validationPanelOpen: false,
+        validationPanelState: 'idle',
+        validationRunResult: null,
+
         // New Submodule Overlay Panel State
         submodulePanelOpen: false,
         activeSubmodule: null,
@@ -2237,6 +2398,40 @@
               { id: 'google-search', name: 'Google Search', description: 'General web search', cost: 'expensive', status: 'pending', result_count: 0 }
             ]
           }
+        },
+
+        // Validation Categories (Step 2)
+        validationCategories: {
+          filtering: {
+            label: 'URL Filtering',
+            icon: '🔍',
+            description: 'Filter URLs by path, format, and domain',
+            enabled: true,
+            expanded: false,
+            submodules: [
+              { id: 'url-format', name: 'URL Format', description: 'Validate URL structure and format', cost: 'cheap', status: 'pending', result_count: 0, valid_count: 0, invalid_count: 0 },
+              { id: 'path-filter', name: 'Path Filter', description: 'Filter unwanted paths (login, terms, etc)', cost: 'cheap', status: 'pending', result_count: 0, valid_count: 0, invalid_count: 0 }
+            ]
+          },
+          dedup: {
+            label: 'Deduplication',
+            icon: '🔄',
+            description: 'Remove duplicate URLs',
+            enabled: true,
+            expanded: false,
+            submodules: [
+              { id: 'dedupe', name: 'Deduplicate', description: 'Remove duplicate URLs within each entity', cost: 'cheap', status: 'pending', result_count: 0, valid_count: 0, invalid_count: 0 },
+              { id: 'lang-dedup', name: 'Language Dedup', description: 'Remove translation duplicates, keep preferred language', cost: 'cheap', status: 'pending', result_count: 0, valid_count: 0, invalid_count: 0 }
+            ]
+          }
+        },
+
+        // Validation state tracking
+        validationStats: {
+          total_input: 0,
+          valid_count: 0,
+          filtered_count: 0,
+          duplicate_count: 0
         },
 
         // Open results panel with submodule data (mock mode)
@@ -2705,6 +2900,269 @@
             .flatMap(cat => cat.submodules)
             .filter(s => s.status === 'approved')
             .reduce((sum, s) => sum + (s.result_count || 0), 0);
+        },
+
+        // ==================== VALIDATION CATEGORY METHODS (Step 2) ====================
+
+        toggleValidationCategory(catKey) {
+          // Close all other categories
+          Object.keys(this.validationCategories).forEach(key => {
+            if (key !== catKey) this.validationCategories[key].expanded = false;
+          });
+          // Toggle the clicked category
+          this.validationCategories[catKey].expanded = !this.validationCategories[catKey].expanded;
+        },
+
+        getApprovedValidationSubmoduleCount(category) {
+          return category.submodules.filter(s => s.status === 'approved' || s.status === 'completed').length;
+        },
+
+        getTotalApprovedValidationSubmodules() {
+          return Object.values(this.validationCategories)
+            .flatMap(cat => cat.submodules)
+            .filter(s => s.status === 'approved' || s.status === 'completed').length;
+        },
+
+        openValidationSubmodule(submodule, category) {
+          this.activeSubmodule = { ...submodule, type: 'validation' };
+          this.activeCategory = category;
+          this.validationPanelOpen = true;
+          this.validationPanelState = submodule.status === 'approved' ? 'approved' :
+                                      submodule.status === 'completed' ? 'completed' : 'idle';
+          this.validationRunResult = submodule.runResult || null;
+        },
+
+        closeValidationPanel() {
+          this.validationPanelOpen = false;
+          this.activeSubmodule = null;
+          this.activeCategory = null;
+          this.validationRunResult = null;
+        },
+
+        async runValidationSubmodule() {
+          if (!this.currentRunId) {
+            this.showToast('No active run - create a project first', 'error');
+            return;
+          }
+
+          const submodule = this.activeSubmodule;
+          if (!submodule) return;
+
+          const runKey = `validation-${submodule.id}`;
+          this.runningSubmodules[runKey] = true;
+          this.validationPanelState = 'running';
+
+          try {
+            const res = await fetch(`/api/submodules/validation/${submodule.id}/execute`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                run_id: this.currentRunId,
+                config: {}
+              })
+            });
+
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Validation failed');
+            }
+
+            const result = await res.json();
+
+            // Store result
+            this.validationRunResult = result;
+            submodule.runResult = result;
+            submodule.status = 'completed';
+            submodule.result_count = result.result_count;
+            submodule.valid_count = result.valid_count;
+            submodule.invalid_count = result.invalid_count;
+            submodule.submodule_run_id = result.submodule_run_id;
+
+            this.validationPanelState = 'completed';
+
+            // Update validation stats
+            this.validationStats.total_input = result.result_count;
+            this.validationStats.valid_count = result.valid_count;
+            this.validationStats.filtered_count += result.invalid_count;
+            if (submodule.id === 'dedupe') {
+              this.validationStats.duplicate_count = result.invalid_count;
+            }
+
+            this.showToast(`Validated: ${result.valid_count} valid, ${result.invalid_count} filtered`);
+          } catch (e) {
+            console.error('Validation failed:', e);
+            this.showToast(e.message, 'error');
+            this.validationPanelState = 'error';
+          } finally {
+            this.runningSubmodules[runKey] = false;
+          }
+        },
+
+        async applyValidationResults() {
+          const submodule = this.activeSubmodule;
+          if (!submodule?.submodule_run_id || !this.currentRunId) {
+            this.showToast('No validation results to apply', 'error');
+            return;
+          }
+
+          try {
+            const res = await fetch(`/api/submodules/validation/runs/${this.currentRunId}/${submodule.submodule_run_id}/apply`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Apply failed');
+            }
+
+            const result = await res.json();
+
+            // Update submodule status
+            submodule.status = 'approved';
+            this.validationPanelState = 'approved';
+
+            this.showToast(`Applied: ${result.valid_count} valid, ${result.filtered_count} filtered`);
+            this.closeValidationPanel();
+          } catch (e) {
+            console.error('Apply failed:', e);
+            this.showToast(e.message, 'error');
+          }
+        },
+
+        downloadValidationCsv(type) {
+          const urls = type === 'valid'
+            ? this.validationRunResult?.valid
+            : this.validationRunResult?.invalid;
+
+          if (!urls || urls.length === 0) {
+            this.showToast(`No ${type} URLs to download`, 'error');
+            return;
+          }
+
+          // Build CSV content
+          const headers = ['url', 'entity_name', 'discovery_method'];
+          if (type === 'invalid') {
+            headers.push('reason');
+          }
+
+          let csv = headers.join(',') + '\n';
+          for (const u of urls) {
+            const row = [
+              `"${(u.url || '').replace(/"/g, '""')}"`,
+              `"${(u.entity_name || '').replace(/"/g, '""')}"`,
+              `"${(u.discovery_method || '').replace(/"/g, '""')}"`
+            ];
+            if (type === 'invalid') {
+              row.push(`"${(u.reason || u.details || '').replace(/"/g, '""')}"`);
+            }
+            csv += row.join(',') + '\n';
+          }
+
+          // Download
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+          const link = document.createElement('a');
+          const submoduleName = this.activeSubmodule?.name || 'validation';
+          link.href = URL.createObjectURL(blob);
+          link.download = `${submoduleName}-${type}-urls-${new Date().toISOString().slice(0,10)}.csv`;
+          link.click();
+          URL.revokeObjectURL(link.href);
+
+          this.showToast(`Downloaded ${urls.length} ${type} URLs`);
+        },
+
+        downloadSubmoduleCsv() {
+          // Download URLs from discovery submodule results
+          const result = this.submoduleRunResult;
+          if (!result) {
+            this.showToast('No results to download', 'error');
+            return;
+          }
+
+          // Collect all URLs from entities
+          let allUrls = [];
+          for (const entity of result.entities || []) {
+            const entityUrls = entity.urls || [];
+            for (const url of entityUrls) {
+              allUrls.push({
+                url: typeof url === 'string' ? url : url.url,
+                entity_name: entity.name,
+                discovery_method: result.submodule || this.activeSubmodule?.id || 'unknown'
+              });
+            }
+          }
+
+          // Also check raw results array
+          if (allUrls.length === 0 && result.results) {
+            allUrls = result.results.map(r => ({
+              url: r.url,
+              entity_name: r.entity_name || 'Unknown',
+              discovery_method: r.discovery_method || result.submodule || 'unknown'
+            }));
+          }
+
+          if (allUrls.length === 0) {
+            this.showToast('No URLs to download', 'error');
+            return;
+          }
+
+          // Build CSV
+          const headers = ['url', 'entity_name', 'discovery_method'];
+          let csv = headers.join(',') + '\n';
+          for (const u of allUrls) {
+            csv += [
+              `"${(u.url || '').replace(/"/g, '""')}"`,
+              `"${(u.entity_name || '').replace(/"/g, '""')}"`,
+              `"${(u.discovery_method || '').replace(/"/g, '""')}"`
+            ].join(',') + '\n';
+          }
+
+          // Download
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+          const link = document.createElement('a');
+          const submoduleName = this.activeSubmodule?.name || 'submodule';
+          link.href = URL.createObjectURL(blob);
+          link.download = `${submoduleName}-urls-${new Date().toISOString().slice(0,10)}.csv`;
+          link.click();
+          URL.revokeObjectURL(link.href);
+
+          this.showToast(`Downloaded ${allUrls.length} URLs`);
+        },
+
+        downloadResultsPanelCsv() {
+          // Download items from legacy results panel
+          const items = this.resultsPanel?.items;
+          if (!items || items.length === 0) {
+            this.showToast('No results to download', 'error');
+            return;
+          }
+
+          // Determine columns from first item
+          const sampleItem = items[0];
+          const headers = Object.keys(sampleItem).filter(k =>
+            typeof sampleItem[k] !== 'object' || sampleItem[k] === null
+          );
+
+          let csv = headers.join(',') + '\n';
+          for (const item of items) {
+            const row = headers.map(h => {
+              const val = item[h];
+              if (val === null || val === undefined) return '""';
+              return `"${String(val).replace(/"/g, '""')}"`;
+            });
+            csv += row.join(',') + '\n';
+          }
+
+          // Download
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+          const link = document.createElement('a');
+          const title = this.resultsPanel?.title || 'results';
+          link.href = URL.createObjectURL(blob);
+          link.download = `${title.replace(/\s+/g, '-').toLowerCase()}-${new Date().toISOString().slice(0,10)}.csv`;
+          link.click();
+          URL.revokeObjectURL(link.href);
+
+          this.showToast(`Downloaded ${items.length} items`);
         },
 
         // ==================== SUBMODULE OVERLAY PANEL METHODS ====================
@@ -3648,8 +4106,22 @@
         },
 
         async markStepCompleted(i) {
-          // In live mode with active run, call approval API
-          if (!this.useMockData && this.currentRunId) {
+          // For Step 1 (Discovery) and Step 2 (Validation), use submodule-based approval
+          // Don't call the old stages/approve API which expects run_entities.status
+          if (!this.useMockData && this.currentRunId && (i === 1 || i === 2)) {
+            // Check if we have approved submodules for this step
+            const hasApproved = i === 1
+              ? this.getTotalApprovedSubmodules() > 0
+              : this.getTotalApprovedValidationSubmodules() > 0;
+
+            if (!hasApproved) {
+              this.showToast('Approve at least one submodule first', 'error');
+              return;
+            }
+
+            this.showToast(`Step ${i} completed. Advancing to Step ${i + 1}.`);
+          } else if (!this.useMockData && this.currentRunId) {
+            // For other steps, use the old approval API
             try {
               const res = await fetch(`/api/runs/${this.currentRunId}/stages/${i}/approve`, {
                 method: 'POST',

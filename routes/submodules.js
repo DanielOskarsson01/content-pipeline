@@ -102,14 +102,34 @@ router.post('/validation/:name/execute', async (req, res, next) => {
       return res.status(400).json({ error: 'No entities found for this run' });
     }
 
-    // Load discovered URLs for these entities
-    const { data: urls, error: urlErr } = await db
-      .from('discovered_urls')
-      .select('id, run_entity_id, url, discovery_method, priority, status, created_at')
-      .in('run_entity_id', entityIds)
-      .eq('status', 'pending');
+    // Load discovered URLs for these entities using pagination
+    // (Supabase has a project-level max rows setting, default 1000)
+    const BATCH_SIZE = 1000;
+    const MAX_URLS = 50000;
+    let urls = [];
+    let offset = 0;
+    let hasMore = true;
 
-    if (urlErr) throw urlErr;
+    while (hasMore && urls.length < MAX_URLS) {
+      const { data: batch, error: urlErr } = await db
+        .from('discovered_urls')
+        .select('id, run_entity_id, url, discovery_method, priority, status, created_at')
+        .in('run_entity_id', entityIds)
+        .eq('status', 'pending')
+        .range(offset, offset + BATCH_SIZE - 1);
+
+      if (urlErr) throw urlErr;
+
+      if (!batch || batch.length === 0) {
+        hasMore = false;
+      } else {
+        urls = urls.concat(batch);
+        offset += BATCH_SIZE;
+        hasMore = batch.length === BATCH_SIZE;
+      }
+    }
+
+    console.log(`[validation] Loaded ${urls.length} URLs for validation (fetched in batches of ${BATCH_SIZE})`);
 
     if (!urls || urls.length === 0) {
       return res.json({
