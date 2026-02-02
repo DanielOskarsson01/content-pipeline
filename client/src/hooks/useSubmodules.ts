@@ -117,3 +117,50 @@ export function useBatchApprove() {
     },
   });
 }
+
+// Start a pipeline run for a project
+export function useStartRun() {
+  const queryClient = useQueryClient();
+  const { showToast } = useAppStore();
+
+  return useMutation({
+    mutationFn: (projectId: string) => api.startRun(projectId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['runs'] });
+      showToast('Run started', 'success');
+    },
+  });
+}
+
+// Approve entire submodule run (saves all URLs to discovered_urls)
+export function useApproveSubmoduleRun() {
+  const queryClient = useQueryClient();
+  const { showToast } = useAppStore();
+
+  return useMutation({
+    mutationFn: async ({
+      runId,
+      submoduleRunId,
+    }: {
+      runId: string;
+      submoduleRunId: string;
+    }) => {
+      const response = await fetch(`/api/submodules/runs/${runId}/${submoduleRunId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || 'Failed to approve');
+      }
+      return response.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ['submoduleRuns', variables.runId],
+      });
+      showToast('Submodule approved', 'success');
+    },
+  });
+}

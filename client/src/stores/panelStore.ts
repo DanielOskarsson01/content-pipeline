@@ -11,9 +11,13 @@ interface PanelStore {
   // Accordion state
   panelAccordion: PanelAccordion;
 
-  // Submodule execution state (for demo)
+  // Submodule execution state
   submoduleState: 'idle' | 'running' | 'completed';
   submoduleResults: Array<{ id: string; url: string; entity_name: string }>;
+
+  // API tracking (for approval flow)
+  activeRunId: string | null;
+  activeSubmoduleRunId: string | null;
 
   // Actions
   openSubmodulePanel: (submoduleId: string, categoryKey: string) => void;
@@ -21,6 +25,7 @@ interface PanelStore {
   setPanelAccordion: (accordion: PanelAccordion) => void;
   setSubmoduleState: (state: 'idle' | 'running' | 'completed') => void;
   setSubmoduleResults: (results: Array<{ id: string; url: string; entity_name: string }>) => void;
+  setSubmoduleRunIds: (runId: string, submoduleRunId: string) => void;
   resetPanelState: () => void;
 }
 
@@ -31,6 +36,8 @@ export const usePanelStore = create<PanelStore>((set) => ({
   panelAccordion: 'input',
   submoduleState: 'idle',
   submoduleResults: [],
+  activeRunId: null,
+  activeSubmoduleRunId: null,
 
   openSubmodulePanel: (submoduleId, categoryKey) =>
     set({
@@ -40,6 +47,8 @@ export const usePanelStore = create<PanelStore>((set) => ({
       panelAccordion: 'input',
       submoduleState: 'idle',
       submoduleResults: [],
+      activeRunId: null,
+      activeSubmoduleRunId: null,
     }),
 
   closeSubmodulePanel: () =>
@@ -56,6 +65,9 @@ export const usePanelStore = create<PanelStore>((set) => ({
   setSubmoduleResults: (results) =>
     set({ submoduleResults: results }),
 
+  setSubmoduleRunIds: (runId, submoduleRunId) =>
+    set({ activeRunId: runId, activeSubmoduleRunId: submoduleRunId }),
+
   resetPanelState: () =>
     set({
       submodulePanelOpen: false,
@@ -64,5 +76,7 @@ export const usePanelStore = create<PanelStore>((set) => ({
       panelAccordion: 'input',
       submoduleState: 'idle',
       submoduleResults: [],
+      activeRunId: null,
+      activeSubmoduleRunId: null,
     }),
 }));

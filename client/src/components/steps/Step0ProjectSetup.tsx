@@ -82,7 +82,7 @@ export function Step0ProjectSetup() {
       const input: CreateProjectInput = {
         name,
         company_name: name,
-        website_url: '',
+        project_type: 'company_profile',
       };
       createMutation.mutate(input);
     }

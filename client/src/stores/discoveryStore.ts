@@ -68,7 +68,7 @@ const INITIAL_CATEGORIES: Categories = {
     enabled: false,
     expanded: false,
     submodules: [
-      { id: 'google-search', name: 'Google Search', description: 'General web search', cost: 'expensive', status: 'pending', result_count: 0 },
+      { id: 'search-google', name: 'Google Search', description: 'General web search', cost: 'expensive', status: 'pending', result_count: 0 },
     ],
   },
 };

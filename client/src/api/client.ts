@@ -67,7 +67,7 @@ export const api = {
   getSubmoduleResults: (runId: string, submoduleRunId: string) =>
     apiFetch<SubmoduleResults>(`/api/submodules/runs/${runId}/${submoduleRunId}/results`),
   executeSubmodule: (data: ExecuteSubmoduleInput) =>
-    apiFetch<SubmoduleRun>(`/api/submodules/discovery/${data.name}/execute`, {
+    apiFetch<ExecuteSubmoduleResponse>(`/api/submodules/discovery/${data.name}/execute`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
@@ -96,8 +96,9 @@ export interface Project {
 
 export interface CreateProjectInput {
   name: string;
-  company_name: string;
-  website_url: string;
+  company_name?: string;
+  website_url?: string;
+  project_type?: string;
 }
 
 export interface Run {
@@ -116,6 +117,27 @@ export interface SubmoduleRun {
   created_at: string;
 }
 
+// Response from executing a submodule
+export interface ExecuteSubmoduleResponse {
+  submodule_run_id: string;
+  preview_mode?: boolean;
+  submodule: string;
+  status: 'completed' | 'failed';
+  result_count: number;
+  duration_ms: number;
+  results: Array<{
+    url: string;
+    entity_id?: string;
+    entity_name?: string;
+    [key: string]: unknown;
+  }>;
+  logs?: Array<{ level: string; msg: string; ts: number }>;
+  error?: string | null;
+  // Only present when auto-creating a run with project_id
+  created_run_id?: string;
+  created_run_entity_ids?: string[];
+}
+
 export interface SubmoduleResults {
   submodule_run_id: string;
   results: ResultItem[];
@@ -132,7 +154,13 @@ export interface ResultItem {
 
 export interface ExecuteSubmoduleInput {
   name: string;
-  run_id: string;
+  // For database mode with existing run
+  run_id?: string;
+  run_entity_ids?: string[];
+  // For auto-create mode
+  project_id?: string;
+  entities?: Array<{ name: string; website: string }>;
+  // Optional config
   config?: Record<string, unknown>;
 }
 
