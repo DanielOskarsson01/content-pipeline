@@ -1,10 +1,16 @@
-import { useState } from 'react';
+import { useState, useRef, type DragEvent, type ChangeEvent } from 'react';
 import { usePanelStore } from '../../stores/panelStore';
 import { usePipelineStore } from '../../stores/pipelineStore';
 import { useAppStore } from '../../stores/appStore';
 import { useDiscoveryStore, getSubmoduleById } from '../../stores/discoveryStore';
 import { useExecuteSubmodule, useApproveSubmoduleRun } from '../../hooks/useSubmodules';
 import { SubmodulePanel, type AccordionConfig } from '../shared';
+
+// Entity from CSV
+interface CsvEntity {
+  name: string;
+  website: string;
+}
 
 // Mock data for demo mode
 const MOCK_RESULTS = [
@@ -43,8 +49,12 @@ export function Step1Panel() {
   const executeMutation = useExecuteSubmodule();
   const approveMutation = useApproveSubmoduleRun();
 
-  // Local state for input URLs
+  // Local state for input
   const [inputUrls, setInputUrls] = useState('');
+  const [csvEntities, setCsvEntities] = useState<CsvEntity[]>([]);
+  const [csvFileName, setCsvFileName] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Only render if panel is for step 1 (discovery)
   if (!submodulePanelOpen || activeCategoryKey !== 'discovery') return null;
@@ -58,8 +68,102 @@ export function Step1Panel() {
   const isRunning = submoduleState === 'running' || executeMutation.isPending;
   const isCompleted = submoduleState === 'completed';
 
-  // Parse input URLs into entities
+  // Parse CSV content into entities
+  const parseCsv = (content: string): CsvEntity[] => {
+    const lines = content.split('\n').filter((line) => line.trim());
+    if (lines.length === 0) return [];
+
+    // Detect delimiter (comma or semicolon)
+    const firstLine = lines[0];
+    const delimiter = firstLine.includes(';') ? ';' : ',';
+
+    // Parse header to find name/website columns
+    const headers = firstLine.split(delimiter).map((h) => h.trim().toLowerCase().replace(/"/g, ''));
+    const nameIdx = headers.findIndex((h) => ['name', 'company', 'company_name', 'entity'].includes(h));
+    const websiteIdx = headers.findIndex((h) => ['website', 'url', 'domain', 'website_url'].includes(h));
+
+    // If no headers found, assume first column is name, second is website
+    const hasHeaders = nameIdx !== -1 || websiteIdx !== -1;
+    const dataLines = hasHeaders ? lines.slice(1) : lines;
+    const actualNameIdx = nameIdx !== -1 ? nameIdx : 0;
+    const actualWebsiteIdx = websiteIdx !== -1 ? websiteIdx : 1;
+
+    return dataLines
+      .map((line) => {
+        const cols = line.split(delimiter).map((c) => c.trim().replace(/"/g, ''));
+        const name = cols[actualNameIdx] || '';
+        const website = cols[actualWebsiteIdx] || '';
+        if (!name && !website) return null;
+        return { name: name || website, website };
+      })
+      .filter((e): e is CsvEntity => e !== null);
+  };
+
+  // Handle file selection
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+  };
+
+  // Handle drag events
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processFile(file);
+  };
+
+  // Process uploaded file
+  const processFile = (file: File) => {
+    if (!file.name.endsWith('.csv')) {
+      showToast('Please upload a CSV file', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      const entities = parseCsv(content);
+      if (entities.length === 0) {
+        showToast('No valid entities found in CSV', 'error');
+        return;
+      }
+      setCsvEntities(entities);
+      setCsvFileName(file.name);
+      setInputUrls(''); // Clear manual input when CSV is uploaded
+      showToast(`Loaded ${entities.length} entities from CSV`, 'success');
+    };
+    reader.onerror = () => {
+      showToast('Failed to read file', 'error');
+    };
+    reader.readAsText(file);
+  };
+
+  // Clear CSV data
+  const clearCsv = () => {
+    setCsvEntities([]);
+    setCsvFileName(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // Parse input URLs into entities (or use CSV data)
   const parseInputEntities = () => {
+    // If CSV is loaded, use that
+    if (csvEntities.length > 0) {
+      return csvEntities;
+    }
+
+    // Otherwise parse manual URLs
     const urls = inputUrls
       .split('\n')
       .map((u) => u.trim())
@@ -81,6 +185,14 @@ export function Step1Panel() {
         return { name: `Entity ${idx + 1}`, website: url };
       }
     });
+  };
+
+  // Calculate input summary
+  const getInputSummary = () => {
+    if (csvEntities.length > 0) return `${csvEntities.length} from CSV`;
+    const urlCount = inputUrls.split('\n').filter((u) => u.trim()).length;
+    if (urlCount > 0) return `${urlCount} URLs`;
+    return 'No data';
   };
 
   // Run task handler
@@ -170,27 +282,86 @@ export function Step1Panel() {
     {
       id: 'input',
       title: 'Input data',
-      subtitle: 'No data',
+      subtitle: getInputSummary(),
       variant: 'teal',
       showWhen: 'always',
       content: (
         <div className="space-y-3">
-          <div>
-            <label className="block text-xs text-gray-600 mb-1">
-              Paste URLs (one per line)
-            </label>
-            <textarea
-              rows={4}
-              value={inputUrls}
-              onChange={(e) => setInputUrls(e.target.value)}
-              placeholder={'https://betsson.com\nhttps://evolution.com'}
-              className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm font-mono focus:outline-none focus:border-[#0891B2]"
-            />
-          </div>
-          <div className="text-center text-[10px] text-gray-400">— or —</div>
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-[#0891B2] cursor-pointer">
-            <p className="text-xs text-gray-500">Drop CSV or click to browse</p>
-          </div>
+          {/* Show CSV info if loaded */}
+          {csvFileName ? (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-green-600">📄</span>
+                  <div>
+                    <p className="text-sm font-medium text-green-800">{csvFileName}</p>
+                    <p className="text-xs text-green-600">{csvEntities.length} entities loaded</p>
+                  </div>
+                </div>
+                <button
+                  onClick={clearCsv}
+                  className="text-xs text-red-600 hover:text-red-800 px-2 py-1 rounded hover:bg-red-50"
+                >
+                  Remove
+                </button>
+              </div>
+              {/* Preview first few entities */}
+              <div className="mt-2 pt-2 border-t border-green-200">
+                <p className="text-[10px] text-green-600 mb-1">Preview:</p>
+                <div className="space-y-0.5">
+                  {csvEntities.slice(0, 3).map((e, i) => (
+                    <p key={i} className="text-xs text-gray-600 truncate">
+                      {e.name} — {e.website}
+                    </p>
+                  ))}
+                  {csvEntities.length > 3 && (
+                    <p className="text-xs text-gray-400">...and {csvEntities.length - 3} more</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">
+                  Paste URLs (one per line)
+                </label>
+                <textarea
+                  rows={4}
+                  value={inputUrls}
+                  onChange={(e) => setInputUrls(e.target.value)}
+                  placeholder={'https://betsson.com\nhttps://evolution.com'}
+                  className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900 text-sm font-mono focus:outline-none focus:border-[#0891B2]"
+                />
+              </div>
+              <div className="text-center text-[10px] text-gray-400">— or —</div>
+              <div
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
+                  isDragging
+                    ? 'border-[#0891B2] bg-[#0891B2]/5'
+                    : 'border-gray-300 hover:border-[#0891B2]'
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+                <p className="text-xs text-gray-500">
+                  {isDragging ? 'Drop CSV here' : 'Drop CSV or click to browse'}
+                </p>
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Columns: name/company, website/url
+                </p>
+              </div>
+            </>
+          )}
         </div>
       ),
     },
