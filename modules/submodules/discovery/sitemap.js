@@ -64,7 +64,7 @@ module.exports = {
     const { logger = console } = context;
     const includeNested = config.include_nested !== false;
     const maxUrlsPerEntity = config.max_urls_per_entity || 10000;
-    const concurrency = config.concurrency || 5; // Process 5 entities at a time
+    const concurrency = config.concurrency || 10; // Process 10 entities at a time
     const results = [];
     const errors = [];
 
@@ -149,7 +149,7 @@ module.exports = {
     const urls = [];
     let error = null;
 
-    // Try multiple sitemap locations
+    // Try multiple sitemap locations IN PARALLEL
     const sitemapLocations = [
       `https://${domain}/sitemap.xml`,
       `https://${domain}/sitemap_index.xml`,
@@ -159,11 +159,18 @@ module.exports = {
     let content = null;
     let foundUrl = null;
 
-    for (const sitemapUrl of sitemapLocations) {
-      content = await this._fetch(sitemapUrl, 15000, logger);
-      if (content) {
-        foundUrl = sitemapUrl;
-        logger.info(`[sitemap] Found sitemap at ${sitemapUrl}`);
+    // Fetch all locations in parallel, use first successful one
+    const fetchPromises = sitemapLocations.map(async (url) => {
+      const result = await this._fetch(url, 8000, logger); // Reduced timeout to 8s
+      return result ? { url, content: result } : null;
+    });
+
+    const results = await Promise.all(fetchPromises);
+    for (const result of results) {
+      if (result) {
+        content = result.content;
+        foundUrl = result.url;
+        logger.info(`[sitemap] Found sitemap at ${foundUrl}`);
         break;
       }
     }
@@ -229,7 +236,7 @@ module.exports = {
     const urls = [];
 
     try {
-      let content = await this._fetch(url, 15000, logger);
+      let content = await this._fetch(url, 8000, logger); // Reduced timeout
       if (!content) return urls;
 
       // Handle gzipped sitemaps
@@ -266,33 +273,30 @@ module.exports = {
     return urls;
   },
 
-  async _fetch(url, timeout = 15000, logger = console) {
-    // First try simple HTTP fetch
+  async _fetch(url, timeout = 8000, logger = console, useBrowserFallback = false) {
+    // Simple HTTP fetch only (fast mode)
     const content = await this._simpleFetch(url, timeout);
 
     if (content) {
-      // Check if we got a valid XML response or if we're blocked
-      const lowerContent = content.toLowerCase();
-      const isBlocked =
-        lowerContent.includes('captcha') ||
-        lowerContent.includes('cloudflare') ||
-        lowerContent.includes('please enable javascript') ||
-        lowerContent.includes('browser check') ||
-        lowerContent.includes('ddos protection') ||
-        (content.length < 500 && !content.includes('<?xml') && !content.includes('<urlset') && !content.includes('<sitemapindex'));
-
-      if (!isBlocked) {
+      // Check if we got valid XML
+      const isValidXml = content.includes('<?xml') || content.includes('<urlset') || content.includes('<sitemapindex');
+      if (isValidXml) {
         return content;
       }
-
-      logger.info?.(`[sitemap] Simple fetch blocked for ${url}, trying browser...`);
+      // Not valid XML, might be blocked
+      logger.info?.(`[sitemap] Invalid response for ${url} (not XML)`);
     }
 
-    // Fall back to browser fetch
+    // Skip browser fallback for speed (can be enabled if needed)
+    if (!useBrowserFallback) {
+      return null;
+    }
+
+    // Browser fallback (slow, only if explicitly enabled)
     try {
       const result = await fetchWithFallback(url, {
         simpleTimeout: timeout,
-        browserTimeout: 30000,
+        browserTimeout: 15000,
         logger
       });
 

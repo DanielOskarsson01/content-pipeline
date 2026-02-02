@@ -45,13 +45,33 @@ export function useExecuteSubmodule() {
   const { useMockData, showToast } = useAppStore();
 
   return useMutation({
-    mutationFn: api.executeSubmodule,
-    onSuccess: (_data, vars) => {
+    mutationFn: async (data: Parameters<typeof api.executeSubmodule>[0]) => {
+      console.log('[useExecuteSubmodule] mutationFn CALLED with:', JSON.stringify(data, null, 2));
+      try {
+        const response = await api.executeSubmodule(data);
+        console.log('[useExecuteSubmodule] API SUCCESS:', JSON.stringify({
+          status: response.status,
+          result_count: response.result_count,
+          results_length: response.results?.length,
+          preview_mode: response.preview_mode,
+        }, null, 2));
+        return response;
+      } catch (err) {
+        console.error('[useExecuteSubmodule] API FAILED:', err);
+        throw err;
+      }
+    },
+    onSuccess: (data, vars) => {
+      console.log('[useExecuteSubmodule] onSuccess - result_count:', data.result_count, 'results.length:', data.results?.length);
       // Invalidate submodule runs to show new status
       queryClient.invalidateQueries({ queryKey: ['submoduleRuns', vars.run_id] });
       showToast('Submodule started', 'success');
     },
+    onError: (error) => {
+      console.error('[useExecuteSubmodule] onError:', error);
+    },
     onMutate: async () => {
+      console.log('[useExecuteSubmodule] onMutate - useMockData:', useMockData);
       // In demo mode, simulate execution
       if (useMockData) {
         showToast('Submodule running (demo)', 'info');
