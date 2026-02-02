@@ -4,8 +4,6 @@
  * Run: npm test
  */
 
-const { describe, it, expect, beforeEach, jest } = require('@jest/globals');
-
 // Mock dependencies
 jest.mock('../../../services/db');
 

@@ -404,7 +404,7 @@
           </button>
           <button @click="applyValidationResults()"
                   :disabled="validationPanelState !== 'completed'"
-                  :class="validationPanelState === 'completed' ? 'bg-[#E11D73] hover:bg-[#E11D73]/90 text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
+                  :class="validationPanelState === 'completed' ? 'bg-[#E11D73] hover:bg-[#E11D73]/90 text-white' : validationPanelState === 'applying' ? 'bg-[#E11D73]/50 text-white cursor-wait' : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
                   class="flex-1 px-4 py-2.5 rounded text-sm font-medium">
             Apply Results
           </button>
@@ -2308,6 +2308,7 @@
         submodulePanelOpen: false,
         activeSubmodule: null,
         activeCategory: null,
+        activeSubmoduleRef: null, // { categoryKey, submoduleIndex } for updating original submodule
         submoduleState: 'idle', // 'idle', 'ready', 'running', 'completed', 'viewing', 'approved'
         submoduleRunResult: null,
         panelAccordion: 'input', // 'input', 'options', 'results' - which accordion is open
@@ -2924,18 +2925,36 @@
         },
 
         openValidationSubmodule(submodule, category) {
+          // Find and store reference to original submodule location
+          const categoryKey = Object.keys(this.validationCategories).find(
+            key => this.validationCategories[key] === category
+          );
+          const submoduleIndex = category.submodules.indexOf(submodule);
+
+          console.log('[DEBUG] openValidationSubmodule - categoryKey:', categoryKey, 'index:', submoduleIndex);
+          console.log('[DEBUG] openValidationSubmodule - submodule:', submodule);
+
           this.activeSubmodule = { ...submodule, type: 'validation' };
           this.activeCategory = category;
+          this.activeSubmoduleRef = { categoryKey, submoduleIndex }; // Track original location
           this.validationPanelOpen = true;
           this.validationPanelState = submodule.status === 'approved' ? 'approved' :
                                       submodule.status === 'completed' ? 'completed' : 'idle';
           this.validationRunResult = submodule.runResult || null;
         },
 
+        // Get the original submodule from validationCategories
+        getOriginalValidationSubmodule() {
+          if (!this.activeSubmoduleRef) return null;
+          const { categoryKey, submoduleIndex } = this.activeSubmoduleRef;
+          return this.validationCategories[categoryKey]?.submodules[submoduleIndex];
+        },
+
         closeValidationPanel() {
           this.validationPanelOpen = false;
           this.activeSubmodule = null;
           this.activeCategory = null;
+          this.activeSubmoduleRef = null;
           this.validationRunResult = null;
         },
 
@@ -2969,8 +2988,21 @@
 
             const result = await res.json();
 
-            // Store result
+            // Store result in panel state
             this.validationRunResult = result;
+
+            // Update the ORIGINAL submodule in validationCategories (not the copy)
+            const original = this.getOriginalValidationSubmodule();
+            if (original) {
+              original.runResult = result;
+              original.status = 'completed';
+              original.result_count = result.result_count;
+              original.valid_count = result.valid_count;
+              original.invalid_count = result.invalid_count;
+              original.submodule_run_id = result.submodule_run_id;
+            }
+
+            // Also update the copy for immediate UI feedback
             submodule.runResult = result;
             submodule.status = 'completed';
             submodule.result_count = result.result_count;
@@ -2999,11 +3031,25 @@
         },
 
         async applyValidationResults() {
+          // Prevent double-clicks
+          if (this.validationPanelState === 'applying') {
+            return;
+          }
+
           const submodule = this.activeSubmodule;
+          const submoduleRef = this.activeSubmoduleRef; // Capture reference before async ops
+
           if (!submodule?.submodule_run_id || !this.currentRunId) {
             this.showToast('No validation results to apply', 'error');
             return;
           }
+
+          if (!submoduleRef) {
+            this.showToast('Submodule reference lost - please reopen panel', 'error');
+            return;
+          }
+
+          this.validationPanelState = 'applying';
 
           try {
             const res = await fetch(`/api/submodules/validation/runs/${this.currentRunId}/${submodule.submodule_run_id}/apply`, {
@@ -3012,13 +3058,24 @@
             });
 
             if (!res.ok) {
-              const err = await res.json();
+              const err = await res.json().catch(() => ({ error: 'Apply failed' }));
               throw new Error(err.error || 'Apply failed');
             }
 
             const result = await res.json();
 
-            // Update submodule status
+            // Update the ORIGINAL submodule using captured reference
+            const { categoryKey, submoduleIndex } = submoduleRef;
+            const original = this.validationCategories[categoryKey]?.submodules[submoduleIndex];
+
+            if (original) {
+              original.status = 'approved';
+              original.result_count = result.valid_count;
+              original.valid_count = result.valid_count;
+              original.invalid_count = result.filtered_count;
+            }
+
+            // Also update the copy for immediate UI feedback
             submodule.status = 'approved';
             this.validationPanelState = 'approved';
 
@@ -3027,6 +3084,7 @@
           } catch (e) {
             console.error('Apply failed:', e);
             this.showToast(e.message, 'error');
+            this.validationPanelState = 'completed'; // Reset to allow retry
           }
         },
 
