@@ -5,8 +5,29 @@
 
 const { Router } = require('express');
 const path = require('path');
+const IORedis = require('ioredis');
 const db = require('../services/db');
 const router = Router();
+
+// Redis publisher for WebSocket events
+const redisConnection = {
+  host: process.env.REDIS_HOST || '127.0.0.1',
+  port: parseInt(process.env.REDIS_PORT || '6379'),
+  password: process.env.REDIS_PASSWORD,
+  maxRetriesPerRequest: null
+};
+const publisher = new IORedis(redisConnection);
+publisher.on('error', (err) => {
+  console.error('[submodules] Redis error:', err.message);
+});
+
+async function publishEvent(type, data) {
+  try {
+    await publisher.publish('pipeline-events', JSON.stringify({ type, data }));
+  } catch (e) {
+    console.error('[submodules] Failed to publish event:', e.message);
+  }
+}
 
 // Submodule cache
 const submoduleCache = {};
@@ -217,6 +238,15 @@ router.post('/validation/:name/execute', async (req, res, next) => {
     let result = { valid: [], invalid: [], stats: {} };
     let error = null;
 
+    // Publish start event
+    await publishEvent('submodule_start', {
+      run_id,
+      submodule_type: 'validation',
+      submodule_name: name,
+      entity_count: entityIds.length,
+      url_count: enrichedUrls.length
+    });
+
     try {
       result = await submodule.execute(enrichedUrls, config, { logger, db });
     } catch (e) {
@@ -263,6 +293,19 @@ router.post('/validation/:name/execute', async (req, res, next) => {
 
     // Create per-result approval records
     await createApprovalRecords(submoduleRunId, result);
+
+    // Publish complete event
+    await publishEvent('submodule_complete', {
+      run_id,
+      submodule_run_id: submoduleRunId,
+      submodule_type: 'validation',
+      submodule_name: name,
+      status,
+      result_count: enrichedUrls.length,
+      valid_count: result.valid?.length || 0,
+      invalid_count: result.invalid?.length || 0,
+      duration_ms: duration
+    });
 
     res.json({
       submodule_run_id: submoduleRunId,
@@ -499,6 +542,16 @@ router.post('/:type/:name/execute', async (req, res, next) => {
     let results = [];
     let error = null;
 
+    // Publish start event (only for non-preview mode)
+    if (run_id) {
+      await publishEvent('submodule_start', {
+        run_id,
+        submodule_type: type,
+        submodule_name: name,
+        entity_count: entities.length
+      });
+    }
+
     try {
       results = await submodule.execute(entities, config, { logger, db });
     } catch (e) {
@@ -547,6 +600,17 @@ router.post('/:type/:name/execute', async (req, res, next) => {
 
       // Create per-result approval records
       await createApprovalRecords(submoduleRunId, results);
+
+      // Publish complete event
+      await publishEvent('submodule_complete', {
+        run_id,
+        submodule_run_id: submoduleRunId,
+        submodule_type: type,
+        submodule_name: name,
+        status,
+        result_count: results.length,
+        duration_ms: duration
+      });
     }
 
     res.json({
@@ -981,6 +1045,16 @@ router.post('/runs/:runId/:submoduleRunId/batch-approval', async (req, res, next
       .eq('id', req.params.submoduleRunId);
 
     if (subRunErr) throw subRunErr;
+
+    // Publish approval event
+    await publishEvent('submodule_approval', {
+      run_id: req.params.runId,
+      submodule_run_id: req.params.submoduleRunId,
+      approved_count: summary.approved,
+      rejected_count: summary.rejected,
+      pending_count: summary.pending,
+      status: newStatus
+    });
 
     // Chain transfer (future enhancement)
     let chainTriggered = false;
