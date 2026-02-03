@@ -53,7 +53,7 @@ async function createApprovalRecords(submoduleRunId, results) {
     submodule_run_id: submoduleRunId,
     result_index: index,
     result_url: result.url || null,
-    result_entity_id: result.entity_id || result.run_entity_id || null,
+    result_entity_id: result.run_entity_id || null, // Use run_entity_id (UUID), not synthetic entity_id
     result_entity_name: result.entity_name || null,
     status: 'pending'
   }));

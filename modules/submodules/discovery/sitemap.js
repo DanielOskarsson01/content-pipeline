@@ -86,6 +86,7 @@ module.exports = {
 
         const urls = sitemapResult.urls.map(item => ({
           entity_id: entity.id,
+          run_entity_id: entity.run_entity_id, // UUID for database storage
           entity_name: entityName,
           url: item.url,
           source_category: 'website',
