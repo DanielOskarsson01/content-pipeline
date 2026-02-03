@@ -62,61 +62,63 @@ module.exports = {
     const { logger = console } = context;
     const scanAreas = config.scan_areas || ['header', 'footer'];
     const maxUrlsPerEntity = config.max_urls_per_entity || 200;
+    const concurrency = config.concurrency || 10; // Process 10 entities at a time
     const results = [];
     const errors = [];
 
-    for (const entity of entities) {
-      // Get website URL from entity (supports both old and new formats)
+    // Process entity and return its results
+    const processEntity = async (entity) => {
       const website = entity.website || entity.metadata?.website || entity.domain;
+      const entityName = entity.name || entity.entity_name;
 
       if (!website) {
-        errors.push({
-          entity_id: entity.id,
-          entity_name: entity.name || entity.entity_name,
-          error_code: 'NO_WEBSITE_URL',
-          message: 'Entity missing website URL'
-        });
-        logger.warn(`[navigation] Entity ${entity.name || entity.entity_name} has no website, skipping`);
-        continue;
+        return {
+          urls: [],
+          error: { entity_id: entity.id, entity_name: entityName, error_code: 'NO_WEBSITE_URL', message: 'Entity missing website URL' }
+        };
       }
 
       try {
         const domain = this._extractDomain(website);
         const navResult = await this._extractNavLinks(domain, scanAreas, maxUrlsPerEntity, logger);
 
-        for (const item of navResult.urls) {
-          results.push({
-            entity_id: entity.id,
-            entity_name: entity.name || entity.entity_name,
-            url: item.url,
-            source_category: 'website',
-            source_submodule: 'navigation',
-            metadata: {
-              source: 'navigation',
-              nav_location: item.location || null
-            }
-          });
-        }
-
-        if (navResult.error) {
-          errors.push({
-            entity_id: entity.id,
-            entity_name: entity.name || entity.entity_name,
-            error_code: navResult.error.code,
-            message: navResult.error.message
-          });
-        }
-
-        logger.info(`[navigation] Found ${navResult.urls.length} URLs for ${entity.name || entity.entity_name}`);
-      } catch (e) {
-        errors.push({
+        const urls = navResult.urls.map(item => ({
           entity_id: entity.id,
-          entity_name: entity.name || entity.entity_name,
-          error_code: 'PAGE_LOAD_ERROR',
-          message: e.message
-        });
-        logger.error(`[navigation] Error processing ${entity.name || entity.entity_name}: ${e.message}`);
+          entity_name: entityName,
+          url: item.url,
+          source_category: 'website',
+          source_submodule: 'navigation',
+          metadata: { source: 'navigation', nav_location: item.location || null }
+        }));
+
+        logger.info(`[navigation] Found ${urls.length} URLs for ${entityName}`);
+
+        return {
+          urls,
+          error: navResult.error ? { entity_id: entity.id, entity_name: entityName, ...navResult.error } : null
+        };
+      } catch (e) {
+        logger.error(`[navigation] Error processing ${entityName}: ${e.message}`);
+        return {
+          urls: [],
+          error: { entity_id: entity.id, entity_name: entityName, error_code: 'PAGE_LOAD_ERROR', message: e.message }
+        };
       }
+    };
+
+    // Process entities in parallel batches
+    logger.info(`[navigation] Processing ${entities.length} entities (concurrency: ${concurrency})`);
+
+    for (let i = 0; i < entities.length; i += concurrency) {
+      const batch = entities.slice(i, i + concurrency);
+      const batchResults = await Promise.all(batch.map(processEntity));
+
+      for (const result of batchResults) {
+        results.push(...result.urls);
+        if (result.error) errors.push(result.error);
+      }
+
+      logger.info(`[navigation] Processed batch ${Math.floor(i / concurrency) + 1}/${Math.ceil(entities.length / concurrency)}`);
     }
 
     // Attach errors to results for visibility
@@ -145,7 +147,7 @@ module.exports = {
     let error = null;
     const homepageUrl = `https://${domain}`;
 
-    const html = await this._fetch(homepageUrl, 30000);
+    const html = await this._fetch(homepageUrl, 15000);
     if (!html) {
       return {
         urls: [],

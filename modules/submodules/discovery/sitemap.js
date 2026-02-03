@@ -161,7 +161,7 @@ module.exports = {
 
     // Fetch all locations in parallel, use first successful one
     const fetchPromises = sitemapLocations.map(async (url) => {
-      const result = await this._fetch(url, 8000, logger); // Reduced timeout to 8s
+      const result = await this._fetch(url, 12000, logger); // Reduced timeout to 8s
       return result ? { url, content: result } : null;
     });
 
@@ -236,7 +236,7 @@ module.exports = {
     const urls = [];
 
     try {
-      let content = await this._fetch(url, 8000, logger); // Reduced timeout
+      let content = await this._fetch(url, 12000, logger); // Reduced timeout
       if (!content) return urls;
 
       // Handle gzipped sitemaps
@@ -273,7 +273,7 @@ module.exports = {
     return urls;
   },
 
-  async _fetch(url, timeout = 8000, logger = console, useBrowserFallback = false) {
+  async _fetch(url, timeout = 12000, logger = console, useBrowserFallback = false) {
     // Simple HTTP fetch only (fast mode)
     const content = await this._simpleFetch(url, timeout);
 
