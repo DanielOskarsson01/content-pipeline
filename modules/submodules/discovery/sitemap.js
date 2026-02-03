@@ -149,7 +149,7 @@ module.exports = {
     const urls = [];
     let error = null;
 
-    // Try multiple sitemap locations IN PARALLEL
+    // Try multiple sitemap locations sequentially (reduces rate limiting)
     const sitemapLocations = [
       `https://${domain}/sitemap.xml`,
       `https://${domain}/sitemap_index.xml`,
@@ -159,17 +159,11 @@ module.exports = {
     let content = null;
     let foundUrl = null;
 
-    // Fetch all locations in parallel, use first successful one
-    const fetchPromises = sitemapLocations.map(async (url) => {
-      const result = await this._fetch(url, 15000, logger); // Reduced timeout to 8s
-      return result ? { url, content: result } : null;
-    });
-
-    const results = await Promise.all(fetchPromises);
-    for (const result of results) {
-      if (result) {
-        content = result.content;
-        foundUrl = result.url;
+    // Try each location sequentially - stop at first success
+    for (const sitemapUrl of sitemapLocations) {
+      content = await this._fetch(sitemapUrl, 15000, logger);
+      if (content) {
+        foundUrl = sitemapUrl;
         logger.info(`[sitemap] Found sitemap at ${foundUrl}`);
         break;
       }
