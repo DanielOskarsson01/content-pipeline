@@ -2,10 +2,19 @@ import { create } from 'zustand';
 
 export type StepStatus = 'pending' | 'active' | 'completed' | 'skipped';
 
+// Approved step results for passing data between steps
+export interface StepResult {
+  url: string;
+  entity_name: string;
+}
+
 interface PipelineStore {
   // Selected IDs (data comes from Query)
   selectedProjectId: string | null;
   selectedRunId: string | null;
+
+  // Approved step results (persisted for cross-step data flow)
+  step1ApprovedUrls: StepResult[];
 
   // Step states (0-10 workflow steps)
   stepStates: Record<number, StepStatus>;
@@ -22,6 +31,7 @@ interface PipelineStore {
   // Actions
   setSelectedProject: (id: string | null) => void;
   setSelectedRun: (id: string | null) => void;
+  setStep1ApprovedUrls: (urls: StepResult[]) => void;
   setStepCompleted: (step: number) => void;
   setStepStatus: (step: number, status: StepStatus) => void;
   toggleStep: (step: number) => void;
@@ -35,6 +45,7 @@ export const usePipelineStore = create<PipelineStore>((set, get) => ({
   // Initial state
   selectedProjectId: null,
   selectedRunId: null,
+  step1ApprovedUrls: [],
   stepStates: {
     0: 'pending',
     1: 'pending',
@@ -67,6 +78,7 @@ export const usePipelineStore = create<PipelineStore>((set, get) => ({
   // Actions
   setSelectedProject: (id) => set({ selectedProjectId: id }),
   setSelectedRun: (id) => set({ selectedRunId: id }),
+  setStep1ApprovedUrls: (urls) => set({ step1ApprovedUrls: urls }),
 
   setStepCompleted: (step) => {
     const stepStates = get().stepStates;

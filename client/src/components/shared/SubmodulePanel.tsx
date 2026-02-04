@@ -22,6 +22,7 @@ interface SubmodulePanelProps {
   onApprove: () => void;
   isRunning: boolean;
   isCompleted: boolean;
+  hasInput?: boolean; // Whether input data is available - enables RUN TASK
 }
 
 interface AccordionItemProps {
@@ -83,6 +84,7 @@ export function SubmodulePanel({
   onApprove,
   isRunning,
   isCompleted,
+  hasInput = true, // Default to true for backwards compatibility
 }: SubmodulePanelProps) {
   const {
     submodulePanelOpen,
@@ -195,11 +197,11 @@ export function SubmodulePanel({
           <div className="flex items-center justify-center gap-3">
             <button
               onClick={onRunTask}
-              disabled={isRunning}
+              disabled={isRunning || !hasInput}
               className={`px-8 py-3 rounded text-sm font-medium ${
-                isRunning
+                isRunning || !hasInput
                   ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                  : 'bg-[#E11D73] hover:bg-[#E11D73]/90 text-white'
               }`}
             >
               RUN TASK
@@ -220,7 +222,7 @@ export function SubmodulePanel({
               disabled={!isCompleted}
               className={`px-8 py-3 rounded text-sm font-medium ${
                 isCompleted
-                  ? 'bg-[#E11D73] hover:bg-[#E11D73]/90 text-white'
+                  ? 'bg-green-600 hover:bg-green-700 text-white'
                   : 'bg-gray-100 text-gray-400 cursor-not-allowed'
               }`}
             >

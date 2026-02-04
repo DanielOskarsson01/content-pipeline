@@ -6,6 +6,7 @@ export type PanelAccordion = 'input' | 'options' | 'results' | null;
 export interface CsvEntity {
   name: string;
   website: string;
+  [key: string]: string;  // Allow additional columns
 }
 
 interface PanelStore {
@@ -30,6 +31,9 @@ interface PanelStore {
   csvFileName: string | null;
   inputUrls: string;
 
+  // Option values for submodule configuration
+  optionValues: Record<string, string | number | boolean>;
+
   // Actions
   openSubmodulePanel: (submoduleId: string, categoryKey: string) => void;
   closeSubmodulePanel: () => void;
@@ -40,6 +44,7 @@ interface PanelStore {
   setCsvData: (entities: CsvEntity[], fileName: string) => void;
   clearCsvData: () => void;
   setInputUrls: (urls: string) => void;
+  setOptionValue: (name: string, value: string | number | boolean) => void;
   resetPanelState: () => void;
 }
 
@@ -55,6 +60,7 @@ export const usePanelStore = create<PanelStore>((set) => ({
   csvEntities: [],
   csvFileName: null,
   inputUrls: '',
+  optionValues: {},
 
   openSubmodulePanel: (submoduleId, categoryKey) =>
     set({
@@ -95,6 +101,11 @@ export const usePanelStore = create<PanelStore>((set) => ({
   setInputUrls: (urls) =>
     set({ inputUrls: urls }),
 
+  setOptionValue: (name, value) =>
+    set((state) => ({
+      optionValues: { ...state.optionValues, [name]: value },
+    })),
+
   resetPanelState: () =>
     set({
       submodulePanelOpen: false,
@@ -108,5 +119,6 @@ export const usePanelStore = create<PanelStore>((set) => ({
       csvEntities: [],
       csvFileName: null,
       inputUrls: '',
+      optionValues: {},
     }),
 }));

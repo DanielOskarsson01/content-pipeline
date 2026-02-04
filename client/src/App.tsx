@@ -3,8 +3,10 @@ import { queryClient } from './api/client';
 import { AppHeader } from './components/layout/AppHeader';
 import { Toast } from './components/layout/Toast';
 import { Step1Panel } from './components/panels/Step1Panel';
+import { Step2Panel } from './components/panels/Step2Panel';
 import { Step0ProjectSetup } from './components/steps/Step0ProjectSetup';
 import { Step1Discovery } from './components/steps/Step1Discovery';
+import { Step2Validation } from './components/steps/Step2Validation';
 import { StepContainer } from './components/steps/StepContainer';
 import { useAppStore } from './stores/appStore';
 
@@ -21,16 +23,7 @@ function App() {
             <div className="space-y-2">
               <Step0ProjectSetup />
               <Step1Discovery />
-
-              {/* Placeholder steps */}
-              <StepContainer
-                step={2}
-                title="Validation & Dedup"
-                description="Filter by trust, authority, policy compliance, and remove duplicates"
-                status="pending"
-              >
-                <p className="text-gray-500 text-sm">Coming next...</p>
-              </StepContainer>
+              <Step2Validation />
 
               <StepContainer
                 step={3}
@@ -58,6 +51,7 @@ function App() {
 
         <Toast />
         <Step1Panel />
+        <Step2Panel />
       </div>
     </QueryClientProvider>
   );
