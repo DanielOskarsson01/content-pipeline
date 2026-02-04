@@ -12,8 +12,9 @@ const server = createServer(app);
 app.use(cors());
 app.use(express.json());
 
-// Static files (dashboard)
-app.use(express.static(path.join(__dirname, 'public')));
+// Static files - serve React build in production
+const clientBuildPath = path.join(__dirname, 'client', 'dist');
+app.use(express.static(clientBuildPath));
 
 // Routes
 app.use('/health', require('./routes/health'));
@@ -23,6 +24,21 @@ app.use('/api/runs', require('./routes/runs'));
 app.use('/api/entities', require('./routes/entities'));
 app.use('/api/content', require('./routes/generated-content'));
 app.use('/api/submodules', require('./routes/submodules'));
+
+// SPA fallback - serve React app for non-API routes (must be before error handler)
+const fs = require('fs');
+app.get('*', (req, res, next) => {
+  // Skip API routes
+  if (req.path.startsWith('/api') || req.path.startsWith('/health') || req.path.startsWith('/ws')) {
+    return next();
+  }
+  const indexPath = path.join(clientBuildPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    next();
+  }
+});
 
 // Error handler (must be last)
 app.use(require('./middleware/errorHandler'));

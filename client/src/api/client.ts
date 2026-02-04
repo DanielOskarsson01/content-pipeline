@@ -66,11 +66,15 @@ export const api = {
     apiFetch<SubmoduleRun[]>(`/api/submodules/runs/${runId}`),
   getSubmoduleResults: (runId: string, submoduleRunId: string) =>
     apiFetch<SubmoduleResults>(`/api/submodules/runs/${runId}/${submoduleRunId}/results`),
-  executeSubmodule: (data: ExecuteSubmoduleInput) =>
-    apiFetch<ExecuteSubmoduleResponse>(`/api/submodules/discovery/${data.name}/execute`, {
+  executeSubmodule: (data: ExecuteSubmoduleInput) => {
+    // Determine submodule type from name
+    const validationSubmodules = ['path-filter', 'content-type-filter', 'exact-dedup', 'fuzzy-dedup'];
+    const type = validationSubmodules.includes(data.name) ? 'validation' : 'discovery';
+    return apiFetch<ExecuteSubmoduleResponse>(`/api/submodules/${type}/${data.name}/execute`, {
       method: 'POST',
       body: JSON.stringify(data),
-    }),
+    });
+  },
 
   // Approvals
   approveResult: (runId: string, submoduleRunId: string, approvalId: string, approved: boolean) =>
@@ -83,6 +87,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ approvals }),
     }),
+
+  // Step Context - for sharing data between steps
+  saveStepContext: (
+    runId: string,
+    stepIndex: number,
+    entities: Array<{ entity_name: string; url?: string; [key: string]: string | undefined }>,
+    sourceSubmodule?: string
+  ) =>
+    apiFetch<{ id: string; entities_count: number; columns: string[] }>(
+      `/api/runs/${runId}/step-context`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          step_index: stepIndex,
+          entities,
+          source_submodule: sourceSubmodule,
+        }),
+      }
+    ),
 };
 
 // Types
@@ -159,9 +182,13 @@ export interface ExecuteSubmoduleInput {
   run_entity_ids?: string[];
   // For auto-create mode
   project_id?: string;
+  // Step 1 entities format (discovery)
   entities?: Array<{ name: string; website: string }>;
-  // Optional config
+  // Step 2+ URL format (validation) - alternative to entities
+  urls?: Array<{ url: string; entity_name: string }>;
+  // Optional config/options
   config?: Record<string, unknown>;
+  options?: Record<string, string | number | boolean>;
 }
 
 export interface ApprovalInput {

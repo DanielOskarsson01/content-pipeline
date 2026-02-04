@@ -160,9 +160,9 @@ module.exports = {
     let content = null;
     let foundUrl = null;
 
-    // Try each location sequentially - stop at first success
+    // Try each location sequentially - stop at first success (30s timeout)
     for (const sitemapUrl of sitemapLocations) {
-      content = await this._fetch(sitemapUrl, 15000, logger);
+      content = await this._fetch(sitemapUrl, 30000, logger);
       if (content) {
         foundUrl = sitemapUrl;
         logger.info(`[sitemap] Found sitemap at ${foundUrl}`);
@@ -186,19 +186,54 @@ module.exports = {
           ? parsed.sitemapindex.sitemap
           : [parsed.sitemapindex.sitemap];
 
-        // Fetch all nested sitemaps IN PARALLEL (much faster)
+        // Fetch all nested sitemaps IN PARALLEL with retry logic
         const sitemapLocs = sitemaps.map(sm => sm.loc).filter(Boolean);
-        logger.info(`[sitemap] Found ${sitemapLocs.length} nested sitemaps, fetching in parallel...`);
+        logger.info(`[sitemap] Found ${sitemapLocs.length} nested sitemaps, fetching with retry...`);
 
-        // Give each sitemap full limit - we'll cap total at the end
-        const fetchPromises = sitemapLocs.map(loc =>
-          this._fetchSingleSitemap(loc, maxUrls, logger)
-            .catch(e => { logger.warn(`[sitemap] Failed to fetch ${loc}: ${e.message}`); return []; })
-        );
+        // Track failed sitemaps for reporting
+        const failedSitemaps = [];
+
+        // Fetch with retry - give each sitemap full limit, cap total at end
+        const fetchPromises = sitemapLocs.map(async (loc) => {
+          // Try up to 3 times with increasing timeout
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              const timeout = 15000 * attempt; // 15s, 30s, 45s
+              const result = await this._fetchSingleSitemap(loc, maxUrls, logger, timeout);
+              if (result.length > 0) {
+                return result;
+              }
+              // Empty result on first attempt - retry
+              if (attempt < 3) {
+                logger.info(`[sitemap] Retry ${attempt}/3 for ${loc} (empty result)`);
+                await new Promise(r => setTimeout(r, 1000 * attempt)); // Wait 1s, 2s before retry
+              }
+            } catch (e) {
+              if (attempt < 3) {
+                logger.info(`[sitemap] Retry ${attempt}/3 for ${loc}: ${e.message}`);
+                await new Promise(r => setTimeout(r, 1000 * attempt));
+              } else {
+                logger.warn(`[sitemap] Failed after 3 attempts: ${loc}`);
+                failedSitemaps.push({ url: loc, error: e.message });
+              }
+            }
+          }
+          return [];
+        });
 
         const allResults = await Promise.all(fetchPromises);
         for (const subUrls of allResults) {
           urls.push(...subUrls);
+        }
+
+        // Report failed sitemaps
+        if (failedSitemaps.length > 0) {
+          logger.warn(`[sitemap] ${failedSitemaps.length}/${sitemapLocs.length} nested sitemaps failed`);
+          error = {
+            code: 'PARTIAL_SITEMAP_FAILURE',
+            message: `${failedSitemaps.length} nested sitemaps failed after retries`,
+            failed_sitemaps: failedSitemaps
+          };
         }
         // Cap total URLs
         if (urls.length > maxUrls) {
@@ -227,11 +262,11 @@ module.exports = {
     return { urls, error };
   },
 
-  async _fetchSingleSitemap(url, maxUrls, logger) {
+  async _fetchSingleSitemap(url, maxUrls, logger, timeout = 30000) {
     const urls = [];
 
     try {
-      let content = await this._fetch(url, 15000, logger); // Reduced timeout
+      let content = await this._fetch(url, timeout, logger);
       if (!content) return urls;
 
       // Handle gzipped sitemaps
