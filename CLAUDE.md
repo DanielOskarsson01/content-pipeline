@@ -1,109 +1,79 @@
 # Content-Pipeline Code Repository
 
-**Code location:** `~/Dropbox/content-pipeline/`
-**Docs/Strategy location:** `~/Library/CloudStorage/Dropbox/Projects/OnlyiGaming/Content-Pipeline/`
-
----
-
-## MANDATORY: Read These First
-
-Before any work in this repo, read:
-
-1. **WORKFLOW.md** - `~/Library/CloudStorage/Dropbox/Projects/OnlyiGaming/Content-Pipeline/WORKFLOW.md`
-   - Zombie process cleanup
-   - Infrastructure check
-   - 3-strike debugging rule
-   - Coworker testing pattern
-
-2. **INFRASTRUCTURE.md** - `~/Library/CloudStorage/Dropbox/Projects/OnlyiGaming/Content-Pipeline/INFRASTRUCTURE.md`
-   - Port registry (3000 = API, 5173 = React dev)
-   - Service locations
-   - Deployment commands
-
-3. **GLOBAL_AGENT_INSTRUCTIONS.md** - `~/Library/CloudStorage/Dropbox/Projects/GLOBAL_AGENT_INSTRUCTIONS.md`
-   - Architecture Change Protocol
-   - CTO oversight checks
-
----
-
-## Quick Start
-
+## Start Development
 ```bash
-# 1. Kill zombie processes
-pkill -f "content-pipeline" 2>/dev/null
-pkill -f "vite" 2>/dev/null
-
-# 2. Start unified dev server
-npm run dev
-
-# 3. Access app at http://localhost:5173 (NOT 3000)
+./dev.sh   # Kills zombies, starts API + React
 ```
+**Access app at http://localhost:5173** (not 3000)
 
 ---
 
-## Key Commands
-
-| Command | What It Does |
-|---------|--------------|
-| `npm run dev` | Start API (3000) + React (5173) together |
-| `npm run dev:api` | API only |
-| `npm run dev:client` | React only |
-| `npm run build` | Build React for production |
-| `npm test` | Run API tests (Jest) |
-| `npm run test:e2e` | Run E2E tests (Playwright) |
-
----
-
-## Architecture
-
+## Project Structure
 ```
 content-pipeline/
 ├── server.js           # Express API (port 3000)
 ├── routes/             # API endpoints
-├── modules/            # Submodules (sitemap, etc.)
+├── services/           # Business logic
+├── modules/            # Pipeline submodules
 ├── workers/            # BullMQ workers
 ├── client/             # React app (Vite, port 5173)
 │   ├── src/
-│   │   ├── components/
-│   │   ├── stores/     # Zustand stores
-│   │   ├── api/        # API client
-│   │   └── hooks/
-│   └── dist/           # Built output (served by Express in prod)
-└── sql/                # Database migrations
+│   │   ├── components/ # UI components (NO fetch here)
+│   │   ├── stores/     # Zustand (UI state ONLY)
+│   │   ├── hooks/      # TanStack Query (data fetching)
+│   │   └── api/        # API client
+│   └── dist/           # Built output
+├── sql/                # Database migrations
+└── tests/              # Jest + Playwright tests
 ```
 
----
-
-## After Architecture Changes
-
-Per GLOBAL_AGENT_INSTRUCTIONS.md Architecture Change Protocol:
-
-1. Update `INFRASTRUCTURE.md`
-2. Update `WORKFLOW.md`
-3. Update this file's session log
-4. Kill old processes before starting new ones
+**Docs location:** `~/Library/CloudStorage/Dropbox/Projects/OnlyiGaming/Content-Pipeline/`
 
 ---
 
-## Session Log
+## Architecture Rules
 
-### Session: 2026-02-04 - Server Architecture Cleanup
-**Accomplished:**
-- Removed old Alpine.js dashboard (archived to `public-legacy-dashboard/`)
-- Added unified `npm run dev` command (runs API + React together)
-- Updated server.js to serve React build from `client/dist/`
-- Added SPA fallback for React Router
-- Updated all workflow documents with new architecture
+### Stores = UI State Only
+Zustand stores: `activeTab`, `toast`, `sidebarOpen`, `isLoading`
+**NEVER:** `projects`, `entities`, `runs`, `selectedProjectId`, `INITIAL_*`
 
-**Key Change:**
-- **Access the app at localhost:5173** (not 3000)
-- Port 3000 is API-only in dev mode, serves built React in production
+### Data Fetching = TanStack Query
+All server data via hooks in `client/src/hooks/`
+**NEVER in components:** `fetch()`, `axios`
 
-**Files Changed:**
-- `server.js` - Now serves `client/dist/` instead of `public/`
-- `package.json` - Added `concurrently`, unified dev script
-- `client/package.json` - Fixed build script
+### Before Coding — Run Checks
+```bash
+grep -rE "entities|projects:|selectedProjectId|INITIAL_" client/src/stores/
+grep -rE "fetch\(|axios" client/src/components/
+```
+Both should return nothing.
 
 ---
 
-*Last updated: 2026-02-04*
+## Ports
+
+| Port | Service |
+|------|---------|
+| 3000 | Express API (backend only) |
+| 5173 | **Vite React (USE THIS)** |
+
+---
+
+## When Debugging
+
+**If a fix fails, run `/debug` before trying again.**
+
+The debug skill loads WORKFLOW.md with:
+- 3-strike rule
+- Infrastructure checks
+- SSH troubleshooting
+- Common pitfalls
+
+---
+
+## Pre-commit Hook Active
+Blocks commits with architecture violations.
+
+---
+
+*Last updated: 2026-02-05*
