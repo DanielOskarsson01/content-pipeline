@@ -33,6 +33,24 @@ async function publishEvent(type, data) {
 const submoduleCache = {};
 
 /**
+ * Validate submodule has required fields
+ * Catches developer errors early
+ */
+function validateSubmodule(submodule, file) {
+  const required = ['id', 'name', 'type', 'category', 'description', 'cost'];
+  const missing = required.filter(field => !submodule[field]);
+  if (missing.length > 0) {
+    console.warn(`[submodules] ${file} missing fields: ${missing.join(', ')}`);
+    return false;
+  }
+  if (typeof submodule.execute !== 'function') {
+    console.warn(`[submodules] ${file} missing execute() function`);
+    return false;
+  }
+  return true;
+}
+
+/**
  * Create approval records for submodule results
  * @param {string} submoduleRunId - UUID of the submodule run
  * @param {Array} results - Array of results (could be {valid:[], invalid:[]} or flat array)
@@ -135,6 +153,9 @@ router.get('/', async (req, res, next) => {
         const submodule = loadSubmodule(type, name);
         if (!submodule) continue;
 
+        // Validate submodule has required fields
+        if (!validateSubmodule(submodule, `${type}/${file}`)) continue;
+
         // Get category from submodule, default to 'other'
         const category = submodule.category || 'other';
 
@@ -169,6 +190,21 @@ router.get('/', async (req, res, next) => {
 
     res.json({ success: true, categories: grouped });
   } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/submodules/reload
+ * Clear submodule cache and reload (development only)
+ * Avoids full server restart when editing submodule files
+ */
+router.post('/reload', (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ error: 'Only available in development' });
+  }
+  const count = Object.keys(submoduleCache).length;
+  Object.keys(submoduleCache).forEach(key => delete submoduleCache[key]);
+  console.log(`[submodules] Cache cleared (${count} entries)`);
+  res.json({ success: true, reloaded: count });
 });
 
 // =====================================================
