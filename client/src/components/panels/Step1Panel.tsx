@@ -1,8 +1,9 @@
-import { usePanelStore, type CsvEntity } from '../../stores/panelStore';
-import { usePipelineStore } from '../../stores/pipelineStore';
+import { useState } from 'react';
+import { usePanelStore } from '../../stores/panelStore';
 import { useAppStore } from '../../stores/appStore';
 import { api } from '../../api/client';
 import { useDiscoveryStore, getSubmoduleById } from '../../stores/discoveryStore';
+import { useUrlParams } from '../../hooks/useUrlParams';
 import { useExecuteSubmodule, useApproveSubmoduleRun } from '../../hooks/useSubmodules';
 import { SubmodulePanel, type AccordionConfig } from '../shared';
 import {
@@ -14,45 +15,42 @@ import {
   SITEMAP_OPTIONS,
 } from '../primitives';
 
-// Mock data for demo mode
-const MOCK_RESULTS = [
-  { id: '1', url: 'https://betsson.com/about', entity_name: 'Betsson' },
-  { id: '2', url: 'https://betsson.com/careers', entity_name: 'Betsson' },
-  { id: '3', url: 'https://betsson.com/news', entity_name: 'Betsson' },
-  { id: '4', url: 'https://betsson.com/investors', entity_name: 'Betsson' },
-  { id: '5', url: 'https://betsson.com/responsible-gaming', entity_name: 'Betsson' },
-];
+// CSV Entity type
+interface CsvEntity {
+  name: string;
+  website: string;
+  [key: string]: string;
+}
 
-// Default entities for demo when no URLs provided
+// Default entities when no URLs provided
 const DEFAULT_ENTITIES = [
   { name: 'Betsson', website: 'https://betsson.com' },
 ];
 
 export function Step1Panel() {
+  // UI state from store
   const {
     submodulePanelOpen,
     activeSubmoduleId,
     activeCategoryKey,
-    submoduleState,
-    submoduleResults,
-    activeRunId,
-    activeSubmoduleRunId,
-    csvEntities,
-    csvFileName,
-    inputUrls,
-    optionValues,
     setPanelAccordion,
-    setSubmoduleState,
-    setSubmoduleResults,
-    setSubmoduleRunIds,
-    setCsvData,
-    clearCsvData,
-    setInputUrls,
-    setOptionValue,
   } = usePanelStore();
 
-  const { selectedProjectId, setSelectedRun, setStep1ApprovedUrls } = usePipelineStore();
-  const { useMockData, showToast } = useAppStore();
+  // URL params
+  const { projectId, selectRun } = useUrlParams();
+
+  // Local state for form inputs
+  const [csvEntities, setCsvEntities] = useState<CsvEntity[]>([]);
+  const [csvFileName, setCsvFileName] = useState<string | null>(null);
+  const [inputUrls, setInputUrls] = useState('');
+  const [optionValues, setOptionValues] = useState<Record<string, string | number | boolean>>({});
+
+  // Local state for results
+  const [results, setResults] = useState<Array<{ id: string; url: string; entity_name: string }>>([]);
+  const [executionRunId, setExecutionRunId] = useState<string | null>(null);
+  const [subRunId, setSubRunId] = useState<string | null>(null);
+
+  const { showToast } = useAppStore();
   const { categories, approveSubmodule } = useDiscoveryStore();
 
   // Mutations
@@ -68,20 +66,16 @@ export function Step1Panel() {
     : null;
   const submoduleInfo = storeInfo?.submodule;
 
-  const isRunning = submoduleState === 'running' || executeMutation.isPending;
-  const isCompleted = submoduleState === 'completed';
-
-  // Check if user has provided input data (CSV or URLs)
+  const isRunning = executeMutation.isPending;
+  const isCompleted = results.length > 0 && !isRunning;
   const hasInput = csvEntities.length > 0 || inputUrls.split('\n').some((u) => u.trim().length > 0);
 
   // Parse input URLs into entities (or use CSV data)
   const parseInputEntities = (): CsvEntity[] => {
-    // If CSV is loaded, use that
     if (csvEntities.length > 0) {
       return csvEntities;
     }
 
-    // Otherwise parse manual URLs using the UrlTextarea helper
     const parsed = parseUrls(inputUrls, 'urls-only');
     if (parsed.length === 0) {
       return DEFAULT_ENTITIES;
@@ -98,69 +92,65 @@ export function Step1Panel() {
     return 'No data';
   };
 
+  // CSV handlers
+  const handleCsvLoad = (entities: CsvEntity[], fileName: string) => {
+    setCsvEntities(entities);
+    setCsvFileName(fileName);
+    showToast(`Loaded ${entities.length} entities from CSV`, 'success');
+  };
+
+  const handleCsvClear = () => {
+    setCsvEntities([]);
+    setCsvFileName(null);
+  };
+
+  const handleOptionChange = (name: string, value: string | number | boolean) => {
+    setOptionValues(prev => ({ ...prev, [name]: value }));
+  };
+
   // Run task handler
   const handleRunTask = () => {
-    // Open results accordion immediately to show loading state
     setPanelAccordion('results');
 
-    if (useMockData) {
-      // Demo mode - use mock data
-      setSubmoduleState('running');
-      showToast('Running task...', 'info');
-
-      setTimeout(() => {
-        setSubmoduleState('completed');
-        setSubmoduleResults(MOCK_RESULTS);
-        showToast('Task completed - 5 URLs found', 'success');
-      }, 2000);
-      return;
-    }
-
-    // Real API mode
     const entities = parseInputEntities();
     const submoduleName = activeSubmoduleId || 'sitemap';
 
-    // Build request - only include project_id if selected
     const requestData: { name: string; entities: typeof entities; project_id?: string; options?: Record<string, string | number | boolean> } = {
       name: submoduleName,
       entities,
     };
 
-    if (selectedProjectId) {
-      requestData.project_id = selectedProjectId;
+    if (projectId) {
+      requestData.project_id = projectId;
     }
 
-    // Include options if any are set
     if (Object.keys(optionValues).length > 0) {
       requestData.options = optionValues;
     }
 
-    setSubmoduleState('running');
-
     executeMutation.mutate(requestData, {
       onSuccess: (data) => {
-        // Store run IDs for approval and cross-step sharing
+        // Store run IDs for approval
         if (data.created_run_id && data.submodule_run_id) {
-          setSubmoduleRunIds(data.created_run_id, data.submodule_run_id);
-          // Also update pipelineStore so Step 2 can access the run
-          setSelectedRun(data.created_run_id);
+          setExecutionRunId(data.created_run_id);
+          setSubRunId(data.submodule_run_id);
+          // Update URL to include run ID
+          if (projectId) {
+            selectRun(projectId, data.created_run_id);
+          }
         }
 
-        // Map results to expected format
-        const rawResults = data.results || [];
-        const results = rawResults.map((r: { url: string; entity_name?: string }, idx: number) => ({
+        const formattedResults = (data.results || []).map((r: { url: string; entity_name?: string }, idx: number) => ({
           id: String(idx),
           url: r.url,
           entity_name: r.entity_name || 'Unknown',
         }));
 
-        setSubmoduleState('completed');
-        setSubmoduleResults(results);
+        setResults(formattedResults);
         const previewLabel = data.preview_mode ? ' (preview)' : '';
-        showToast(`Task completed${previewLabel} - ${results.length} URLs found`, 'success');
+        showToast(`Task completed${previewLabel} - ${formattedResults.length} URLs found`, 'success');
       },
       onError: (error) => {
-        setSubmoduleState('idle');
         showToast(error.message || 'Task failed', 'error');
       },
     });
@@ -169,27 +159,24 @@ export function Step1Panel() {
   // Approve handler
   const handleApprove = async () => {
     if (activeSubmoduleId) {
-      approveSubmodule(activeSubmoduleId, submoduleResults.length);
+      approveSubmodule(activeSubmoduleId, results.length);
     }
 
-    const approvedUrls = submoduleResults.map((r) => ({
+    const approvedUrls = results.map((r) => ({
       url: r.url,
       entity_name: r.entity_name,
     }));
 
-    if (useMockData) {
-      // Mock mode: save to in-memory store for Step 2 to access
-      setStep1ApprovedUrls(approvedUrls);
-    } else if (activeRunId && activeSubmoduleRunId) {
-      // Real mode: save to Supabase via API
+    if (executionRunId && subRunId) {
+      // Save approval to Supabase
       approveMutation.mutate({
-        runId: activeRunId,
-        submoduleRunId: activeSubmoduleRunId,
+        runId: executionRunId,
+        submoduleRunId: subRunId,
       });
 
       // Save to step_context table - Step 2 will fetch from here
       try {
-        await api.saveStepContext(activeRunId, 1, approvedUrls, activeSubmoduleId || undefined);
+        await api.saveStepContext(executionRunId, 1, approvedUrls, activeSubmoduleId || undefined);
       } catch (e) {
         console.warn('Failed to save step context:', e);
       }
@@ -198,8 +185,9 @@ export function Step1Panel() {
 
   // Reset state for reject
   const resetState = () => {
-    setSubmoduleState('idle');
-    setSubmoduleResults([]);
+    setResults([]);
+    setExecutionRunId(null);
+    setSubRunId(null);
     setPanelAccordion('input');
   };
 
@@ -215,8 +203,8 @@ export function Step1Panel() {
         <div className="space-y-3">
           {csvFileName ? (
             <CsvUploadInput
-              onEntitiesLoaded={(entities, fileName) => setCsvData(entities, fileName)}
-              onClear={clearCsvData}
+              onEntitiesLoaded={handleCsvLoad}
+              onClear={handleCsvClear}
               currentFileName={csvFileName}
               currentEntities={csvEntities}
               onError={(msg) => showToast(msg, 'error')}
@@ -231,11 +219,8 @@ export function Step1Panel() {
               />
               <div className="text-center text-[10px] text-gray-400">— or —</div>
               <CsvUploadInput
-                onEntitiesLoaded={(entities, fileName) => {
-                  setCsvData(entities, fileName);
-                  showToast(`Loaded ${entities.length} entities from CSV`, 'success');
-                }}
-                onClear={clearCsvData}
+                onEntitiesLoaded={handleCsvLoad}
+                onClear={handleCsvClear}
                 currentFileName={null}
                 currentEntities={[]}
                 onError={(msg) => showToast(msg, 'error')}
@@ -255,19 +240,19 @@ export function Step1Panel() {
         <SubmoduleOptions
           config={SITEMAP_OPTIONS}
           values={optionValues}
-          onChange={setOptionValue}
+          onChange={handleOptionChange}
         />
       ),
     },
     {
       id: 'results',
       title: 'Results',
-      subtitle: submoduleResults.length > 0 ? `${submoduleResults.length} URLs` : '',
+      subtitle: results.length > 0 ? `${results.length} URLs` : '',
       variant: 'pink',
       showWhen: 'running',
       content: (
         <ResultsList
-          results={submoduleResults}
+          results={results}
           isLoading={isRunning}
           emptyMessage="No URLs discovered yet"
           showEntityName

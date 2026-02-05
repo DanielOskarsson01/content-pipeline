@@ -1,85 +1,41 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, type SubmoduleRun, type SubmoduleResults } from '../api/client';
+import { api } from '../api/client';
 import { useAppStore } from '../stores/appStore';
-
-// Mock data for demo mode
-const MOCK_SUBMODULE_RUNS: SubmoduleRun[] = [];
-
-const MOCK_RESULTS: SubmoduleResults = {
-  submodule_run_id: 'mock-run-1',
-  results: [
-    { id: '1', url: 'https://betsson.com/about', entity_name: 'Betsson', approval_id: 'a1', approved: undefined },
-    { id: '2', url: 'https://betsson.com/careers', entity_name: 'Betsson', approval_id: 'a2', approved: undefined },
-    { id: '3', url: 'https://betsson.com/news', entity_name: 'Betsson', approval_id: 'a3', approved: true },
-  ],
-  approval_status: {},
-};
 
 // Fetch all submodule runs for a pipeline run
 export function useSubmoduleRuns(runId: string | null) {
-  const { useMockData } = useAppStore();
-
   return useQuery({
     queryKey: ['submoduleRuns', runId],
     queryFn: () => api.getSubmoduleRuns(runId!),
-    enabled: !!runId && !useMockData,
-    placeholderData: useMockData ? MOCK_SUBMODULE_RUNS : undefined,
+    enabled: !!runId,
   });
 }
 
 // Fetch results for a specific submodule run
 export function useSubmoduleResults(runId: string | null, submoduleRunId: string | null) {
-  const { useMockData } = useAppStore();
-
   return useQuery({
     queryKey: ['submoduleResults', runId, submoduleRunId],
     queryFn: () => api.getSubmoduleResults(runId!, submoduleRunId!),
-    enabled: !!runId && !!submoduleRunId && !useMockData,
-    placeholderData: useMockData ? MOCK_RESULTS : undefined,
+    enabled: !!runId && !!submoduleRunId,
   });
 }
 
 // Execute a submodule
 export function useExecuteSubmodule() {
   const queryClient = useQueryClient();
-  const { useMockData, showToast } = useAppStore();
+  const { showToast } = useAppStore();
 
   return useMutation({
     mutationFn: async (data: Parameters<typeof api.executeSubmodule>[0]) => {
-      console.log('[useExecuteSubmodule] mutationFn CALLED with:', JSON.stringify(data, null, 2));
-      try {
-        const response = await api.executeSubmodule(data);
-        console.log('[useExecuteSubmodule] API SUCCESS:', JSON.stringify({
-          status: response.status,
-          result_count: response.result_count,
-          results_length: response.results?.length,
-          preview_mode: response.preview_mode,
-        }, null, 2));
-        return response;
-      } catch (err) {
-        console.error('[useExecuteSubmodule] API FAILED:', err);
-        throw err;
-      }
+      const response = await api.executeSubmodule(data);
+      return response;
     },
     onSuccess: (data, vars) => {
-      console.log('[useExecuteSubmodule] onSuccess - result_count:', data.result_count, 'results.length:', data.results?.length);
-      // Invalidate submodule runs to show new status
       queryClient.invalidateQueries({ queryKey: ['submoduleRuns', vars.run_id] });
       showToast('Submodule started', 'success');
     },
     onError: (error) => {
-      console.error('[useExecuteSubmodule] onError:', error);
-    },
-    onMutate: async () => {
-      console.log('[useExecuteSubmodule] onMutate - useMockData:', useMockData);
-      // In demo mode, simulate execution
-      if (useMockData) {
-        showToast('Submodule running (demo)', 'info');
-        // Simulate async completion
-        setTimeout(() => {
-          showToast('Submodule completed (demo)', 'success');
-        }, 2000);
-      }
+      console.error('[useExecuteSubmodule] Error:', error);
     },
   });
 }
@@ -102,7 +58,6 @@ export function useApproveResult() {
       approved: boolean;
     }) => api.approveResult(runId, submoduleRunId, approvalId, approved),
     onSuccess: (_, variables) => {
-      // Invalidate results to reflect new approval status
       queryClient.invalidateQueries({
         queryKey: ['submoduleResults', variables.runId, variables.submoduleRunId],
       });
@@ -152,7 +107,7 @@ export function useStartRun() {
   });
 }
 
-// Approve entire submodule run (saves all URLs to discovered_urls)
+// Approve entire submodule run
 export function useApproveSubmoduleRun() {
   const queryClient = useQueryClient();
   const { showToast } = useAppStore();
