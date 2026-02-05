@@ -1,31 +1,67 @@
+import { useMemo } from 'react';
 import { StepContainer } from './StepContainer';
-import { usePipelineStore } from '../../stores/pipelineStore';
 import { usePanelStore } from '../../stores/panelStore';
 import { useAppStore } from '../../stores/appStore';
 import { useValidationStore } from '../../stores/validationStore';
+import { useStepCategories } from '../../hooks/useSubmodules';
+import { useUrlParams } from '../../hooks/useUrlParams';
 import { useStepContext, extractUrlsFromContext } from '../../hooks/useStepContext';
 import {
   CategoryCardGrid,
   StepSummary,
   StepApprovalFooter,
 } from '../shared';
-import type { Category, Submodule } from '../../types/step';
+import type { Categories, Category, Submodule } from '../../types/step';
 
 export function Step2Validation() {
-  const { setStepCompleted, stepStates, selectedRunId } = usePipelineStore();
   const { openSubmodulePanel } = usePanelStore();
   const { showToast } = useAppStore();
-  const { categories, toggleCategory } = useValidationStore();
+  const { runId } = useUrlParams();
+
+  // Server data (category + submodule definitions)
+  const { categories: serverCategories, isLoading, error } = useStepCategories(2);
+
+  // UI state (expanded, status, result_count)
+  const { expanded, status, result_count, toggleCategory } = useValidationStore();
 
   // Fetch Step 1 context to show input URL count
   const { data: step1Context, isLoading: isLoadingContext } = useStepContext(
-    selectedRunId,
+    runId,
     1 // Step 1 index
   );
 
   const inputUrls = extractUrlsFromContext(step1Context);
-  const isStepCompleted = stepStates[2] === 'completed';
-  const isStep1Completed = stepStates[1] === 'completed';
+
+  // Merge server data with UI state
+  const categories: Categories = useMemo(() => {
+    if (!serverCategories) return {};
+
+    const merged: Categories = {};
+
+    // Sort by order and build merged structure
+    const sortedEntries = Object.entries(serverCategories)
+      .sort(([, a], [, b]) => a.order - b.order);
+
+    for (const [key, serverCat] of sortedEntries) {
+      merged[key] = {
+        label: serverCat.label,
+        icon: serverCat.icon,
+        description: serverCat.description,
+        enabled: true, // All enabled by default
+        expanded: expanded[key] ?? false,
+        submodules: serverCat.submodules.map((serverSub) => ({
+          id: serverSub.id,
+          name: serverSub.name,
+          description: serverSub.description,
+          cost: serverSub.cost,
+          status: status[serverSub.id] ?? 'pending',
+          result_count: result_count[serverSub.id] ?? 0,
+        })),
+      };
+    }
+
+    return merged;
+  }, [serverCategories, expanded, status, result_count]);
 
   // Calculate totals
   const getApprovedCount = (cat: Category) =>
@@ -47,10 +83,14 @@ export function Step2Validation() {
   const getCategoryUrlCount = (cat: Category) =>
     cat.submodules.reduce((sum, sub) => sum + sub.result_count, 0);
 
-  // Handle step approval
+  // Derive completion state from approved submodules
+  const isStepCompleted = getTotalApprovedSubmodules() > 0;
+  // Step 1 is "complete" if we have input URLs
+  const isStep1Completed = inputUrls.length > 0;
+
+  // Handle step approval (just show toast - state is derived)
   const handleApproveStep = () => {
     if (getTotalApprovedSubmodules() > 0) {
-      setStepCompleted(2);
       showToast('Step 2 completed!', 'success');
     }
   };
@@ -68,6 +108,26 @@ export function Step2Validation() {
     label: cat.label,
     count: getCategoryUrlCount(cat),
   }));
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <StepContainer step={2} title="Validation" description="Loading..." status="active">
+        <div className="p-4 text-gray-500 text-sm">Loading submodules...</div>
+      </StepContainer>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <StepContainer step={2} title="Validation" description="Error" status="active">
+        <div className="p-4 bg-red-50 text-red-700 rounded-lg text-sm">
+          Failed to load submodules. Please refresh the page.
+        </div>
+      </StepContainer>
+    );
+  }
 
   return (
     <StepContainer

@@ -10,12 +10,19 @@
  */
 
 module.exports = {
-  name: 'url-format',
+  id: 'url-format',
+  name: 'URL Format',
   type: 'validation',
+  category: 'filtering',
   version: '1.0.0',
   description: 'Validate URL format and structure',
   cost: 'cheap',
   requiresExternalApi: false,
+
+  options: [
+    { name: 'max_url_length', type: 'number', default: 2048, description: 'Maximum URL length allowed' },
+    { name: 'require_tld', type: 'boolean', values: [true, false], default: true, description: 'Require top-level domain' },
+  ],
 
   async execute(urls, config, context) {
     const { logger } = context;

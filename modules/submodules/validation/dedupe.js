@@ -12,12 +12,19 @@
  */
 
 module.exports = {
-  name: 'dedupe',
+  id: 'dedupe',
+  name: 'Dedupe',
   type: 'validation',
+  category: 'dedup',
   version: '1.0.0',
   description: 'Remove duplicate URLs within each entity',
   cost: 'cheap',
   requiresExternalApi: false,
+
+  options: [
+    { name: 'dedupe_across_entities', type: 'boolean', values: [true, false], default: false, description: 'Dedupe URLs across all entities (not just within each)' },
+    { name: 'prefer_discovery_method', type: 'select', values: ['sitemap', 'navigation', 'seed-expansion', null], default: null, description: 'Prefer URLs from this discovery method when deduping' },
+  ],
 
   async execute(urls, config, context) {
     const { logger } = context;

@@ -1,22 +1,56 @@
+import { useMemo } from 'react';
 import { StepContainer } from './StepContainer';
-import { usePipelineStore } from '../../stores/pipelineStore';
 import { usePanelStore } from '../../stores/panelStore';
 import { useAppStore } from '../../stores/appStore';
 import { useDiscoveryStore } from '../../stores/discoveryStore';
+import { useStepCategories } from '../../hooks/useSubmodules';
 import {
   CategoryCardGrid,
   StepSummary,
   StepApprovalFooter,
 } from '../shared';
-import type { Category, Submodule } from '../../types/step';
+import type { Categories, Category, Submodule } from '../../types/step';
 
 export function Step1Discovery() {
-  const { setStepCompleted, stepStates } = usePipelineStore();
   const { openSubmodulePanel } = usePanelStore();
   const { showToast } = useAppStore();
-  const { categories, toggleCategory } = useDiscoveryStore();
 
-  const isStepCompleted = stepStates[1] === 'completed';
+  // Server data (category + submodule definitions)
+  const { categories: serverCategories, isLoading, error } = useStepCategories(1);
+
+  // UI state (expanded, status, result_count)
+  const { expanded, status, result_count, toggleCategory } = useDiscoveryStore();
+
+  // Merge server data with UI state
+  const categories: Categories = useMemo(() => {
+    if (!serverCategories) return {};
+
+    const merged: Categories = {};
+
+    // Sort by order and build merged structure
+    const sortedEntries = Object.entries(serverCategories)
+      .sort(([, a], [, b]) => a.order - b.order);
+
+    for (const [key, serverCat] of sortedEntries) {
+      merged[key] = {
+        label: serverCat.label,
+        icon: serverCat.icon,
+        description: serverCat.description,
+        enabled: true, // All enabled by default
+        expanded: expanded[key] ?? false,
+        submodules: serverCat.submodules.map((serverSub) => ({
+          id: serverSub.id,
+          name: serverSub.name,
+          description: serverSub.description,
+          cost: serverSub.cost,
+          status: status[serverSub.id] ?? 'pending',
+          result_count: result_count[serverSub.id] ?? 0,
+        })),
+      };
+    }
+
+    return merged;
+  }, [serverCategories, expanded, status, result_count]);
 
   // Calculate totals
   const getApprovedCount = (cat: Category) =>
@@ -38,10 +72,12 @@ export function Step1Discovery() {
   const getCategoryUrlCount = (cat: Category) =>
     cat.submodules.reduce((sum, sub) => sum + sub.result_count, 0);
 
-  // Handle step approval
+  // Derive completion state from approved submodules
+  const isStepCompleted = getTotalApprovedSubmodules() > 0;
+
+  // Handle step approval (just show toast - state is derived)
   const handleApproveStep = () => {
     if (getTotalApprovedSubmodules() > 0) {
-      setStepCompleted(1);
       showToast('Step 1 completed!', 'success');
     }
   };
@@ -59,6 +95,26 @@ export function Step1Discovery() {
     label: cat.label,
     count: getCategoryUrlCount(cat),
   }));
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <StepContainer step={1} title="Discovery" description="Loading..." status="active">
+        <div className="p-4 text-gray-500 text-sm">Loading submodules...</div>
+      </StepContainer>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <StepContainer step={1} title="Discovery" description="Error" status="active">
+        <div className="p-4 bg-red-50 text-red-700 rounded-lg text-sm">
+          Failed to load submodules. Please refresh the page.
+        </div>
+      </StepContainer>
+    );
+  }
 
   return (
     <StepContainer

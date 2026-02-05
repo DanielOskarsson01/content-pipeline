@@ -28,8 +28,10 @@ const LANG_PATTERNS = [
 ];
 
 module.exports = {
-  name: 'lang-dedup',
+  id: 'lang-dedup',
+  name: 'Language Dedup',
   type: 'validation',
+  category: 'dedup',
   version: '1.0.0',
   description: 'Remove duplicate language variants, keep preferred language',
   cost: 'cheap',

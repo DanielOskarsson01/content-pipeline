@@ -93,36 +93,81 @@ function loadSubmodule(type, name) {
 
 /**
  * GET /api/submodules
- * List available submodules by type
+ * Returns all submodules grouped by category with full metadata.
+ * This is the main endpoint for the frontend to discover available submodules.
+ *
+ * Response format:
+ * {
+ *   success: true,
+ *   categories: {
+ *     "website": {
+ *       label: "Website",
+ *       icon: "🌐",
+ *       description: "Find URLs from company websites",
+ *       step: 1,
+ *       order: 1,
+ *       submodules: [
+ *         { id: "sitemap", name: "Sitemap", description: "...", cost: "cheap", options: [...] }
+ *       ]
+ *     }
+ *   }
+ * }
  */
 router.get('/', async (req, res, next) => {
   try {
     const fs = require('fs');
+    const categoryConfig = require('../config/categories');
     const submodulesDir = path.resolve(__dirname, '..', 'modules', 'submodules');
 
     const types = fs.readdirSync(submodulesDir, { withFileTypes: true })
       .filter(d => d.isDirectory())
       .map(d => d.name);
 
-    const result = {};
+    const grouped = {};
+
     for (const type of types) {
       const typeDir = path.join(submodulesDir, type);
       const files = fs.readdirSync(typeDir)
         .filter(f => f.endsWith('.js') && !f.startsWith('_'));
 
-      result[type] = files.map(f => {
-        const name = f.replace('.js', '');
+      for (const file of files) {
+        const name = file.replace('.js', '');
         const submodule = loadSubmodule(type, name);
-        return {
-          name,
-          description: submodule?.description || '',
-          cost: submodule?.cost || 'medium',
-          requiresExternalApi: submodule?.requiresExternalApi || false
+        if (!submodule) continue;
+
+        // Get category from submodule, default to 'other'
+        const category = submodule.category || 'other';
+
+        // Get category metadata from config, with fallback
+        const catMeta = categoryConfig[category] || {
+          label: category.charAt(0).toUpperCase() + category.slice(1),
+          icon: '📦',
+          description: 'Additional modules',
+          step: type === 'discovery' ? 1 : 2,
+          order: 99,
         };
-      });
+
+        // Initialize category if not exists
+        if (!grouped[category]) {
+          grouped[category] = {
+            ...catMeta,
+            submodules: [],
+          };
+        }
+
+        // Add submodule to category
+        grouped[category].submodules.push({
+          id: submodule.id || name,
+          name: submodule.name || name,
+          description: submodule.description || '',
+          cost: submodule.cost || 'medium',
+          options: submodule.options || [],
+          requiresExternalApi: submodule.requiresExternalApi || false,
+        });
+      }
     }
 
-    res.json(result);
+    res.json({ success: true, categories: grouped });
   } catch (err) { next(err); }
 });
 

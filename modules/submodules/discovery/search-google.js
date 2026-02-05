@@ -7,11 +7,18 @@
  */
 
 module.exports = {
-  name: 'search-google',
+  id: 'search-google',
+  name: 'Google Search',
+  type: 'discovery',
+  category: 'search',
   version: '1.0.0',
   description: 'Discover URLs via Google Custom Search API (site: search)',
   cost: 'expensive',
   requiresExternalApi: true,
+
+  options: [
+    { name: 'search_max_results', type: 'number', default: 10, description: 'Maximum results per entity (max 10 per API call)' },
+  ],
 
   async execute(entities, config, context) {
     const { logger } = context;

@@ -15,12 +15,19 @@
  */
 
 module.exports = {
-  name: 'path-filter',
+  id: 'path-filter',
+  name: 'Path Filter',
   type: 'validation',
+  category: 'filtering',
   version: '1.0.0',
   description: 'Filter out unwanted URL paths (login, terms, etc.)',
   cost: 'cheap',
   requiresExternalApi: false,
+
+  options: [
+    { name: 'use_default_excludes', type: 'boolean', values: [true, false], default: true, description: 'Use default exclude patterns' },
+    { name: 'same_domain_only', type: 'boolean', values: [true, false], default: true, description: 'Filter URLs not on entity domain' },
+  ],
 
   // Default patterns to exclude
   defaultExcludePatterns: [
